@@ -1,0 +1,512 @@
+/* ═══════════════════════════════════════════════════════════
+   L6 · 随机近似（书 Ch.6）
+   ═══════════════════════════════════════════════════════════ */
+(function () {
+  const D = window.DATA;
+  const S = D.sections;
+
+  /* ---- §6.1 增量均值 ---- */
+  S['l6-incremental'] = {
+    kicker: 'L6 · §6.1',
+    title: { zh: '从批量到增量：一条更新式走天下', en: 'From Batch to Incremental: One Update Rule to Rule Them All' },
+    blocks: [
+      { t: 'p', zh: '上一课的均值估计是<strong>非增量</strong>的：攒够 n 个样本再一次性求平均——样本大了要等很久。增量的做法：新样本来了，<strong>旧估计往新样本方向挪一小步</strong>。把 x̄ₖ₊₁ 按旧均值 x̄ₖ 展开，整理出一颗闪烁的种子：', en: 'Last lecture\'s mean estimation was <strong>non-incremental</strong>: wait for all n samples, then average — a long wait for big n. The incremental way: as each new sample arrives, <strong>nudge the old estimate a small step toward it</strong>. Expanding x̄ₖ₊₁ around the old mean x̄ₖ crystallises a glittering seed:' },
+      { t: 'formula', lbl: '增量均值 → 一般形式 · Incremental mean → general form',
+        tex: String.raw`w_{k+1} = w_k - \frac{1}{k}\,(w_k - x_k) \;\Longrightarrow\; w_{k+1} = w_k - \alpha_k\,(w_k - x_k)` },
+      { t: 'p', zh: "用同一串观测比较步长。分别选 1/k 和 0.5，各推进 20 次，读出两个估计。前者给前 20 个样本等权，后者把一半权重留给最后一个样本。再试 α=2，观察误差怎样越过零点。", en: "Replay the same observations with 1/k and 0.5. Advance 20 steps in each mode. The first estimate weights all 20 samples equally; the second puts half its weight on the last sample. Try 2 and watch the estimate overshoot." },
+      { t: 'widget', component: 'l6-incremental' },
+      { t: 'p', zh: '读法是全书通用的句式：<strong>新估计 = 旧估计 − 步长 × (旧估计 − 目标)</strong>。$\\alpha_{k}$ = 1/k 时它精确等于批量平均；$\\alpha_{k}$ 换成别的正数序列，它就是各种「边来边学」的算法。记住这个句式——第 7 章的 TD 更新式和它长得一模一样，只是「目标」换成了「奖励 + γ×下一状态价值」。', en: 'Read it as the book-wide sentence: <strong>new estimate = old estimate − step × (old estimate − target)</strong>. With $\\alpha_{k}$ = 1/k it is exactly the batch average; swap in other positive sequences and it becomes a family of learn-as-you-go algorithms. Memorise the pattern — Chapter 7\'s TD update looks identical, with the "target" replaced by "reward + γ × next-state value".' },
+      { t: 'p', zh: '<strong>$\\alpha_{k}$ = 1/k 不是拍脑袋——它精确卡在两条级数条件的中线上。</strong>调和级数 Σ 1/k = ∞（发散：加得够远）；平方级数 Σ 1/k² = π²/6 &lt; ∞（收敛：抖得够停）。一个步长序列要同时做到「总和无穷、平方和有限」，1/k 是最自然的候选。此刻这只是两条有趣的数学事实；到 §6.2 它们会升格为收敛定理的步长条件——届时你会认出：<strong>增量均值会收敛，正是 Robbins–Monro 条件在 1/t 情形下的特例</strong>。', en: '<strong>$\\alpha_{k}$ = 1/k is not a guess — it sits precisely on the midline of two series conditions.</strong> The harmonic series Σ 1/k = ∞ (diverges: travels far enough); the squared series Σ 1/k² = π²/6 &lt; ∞ (converges: settles down enough). For a step sequence to achieve "infinite total, finite squared sum" at once, 1/k is the most natural candidate. For now these are two pleasant facts of mathematics; in §6.2 they are promoted to the step-size conditions of a convergence theorem — and you will recognise that <strong>the incremental mean converges exactly as the Robbins–Monro conditions specialise to 1/t</strong>.' },
+      { t: 'callout', variant: 'key', zh: '<strong>$\\alpha_{k}$ 不是随便取的</strong>：试验台里的三个档位对应三种命运——1/k 收敛；0.5 恒定步长在真值附近永久抖动（步长太大，噪声擦不掉）；2 直接发散（一步跨过真值到对面更远处）。这些命运由下一节的三条件严格刻画。', en: '<strong>$\\alpha_{k}$ is not a free choice</strong>: the three presets in the lab correspond to three fates — 1/k converges; a constant 0.5 jitters around the truth forever (the step is too big to wash out noise); 2 diverges outright (each step overshoots farther across). These fates are exactly what the next section\'s three conditions formalise.' },
+      { t: 'formula', lbl: '常数步长 = 指数加权平均 · A constant step means exponential weights',
+        tex: String.raw`w_{k+1} = w_k + \alpha(x_k - w_k) \;\Longrightarrow\; w_k = (1-\alpha)^{k-1}x_1 + \sum_{j\le k} \htmlClass{fx-accent}{\alpha(1-\alpha)^{k-j}}\,x_j`,
+        note: '（旧样本的权重几何递减——指数遗忘）' },
+      { t: 'p', zh: '<strong>两种步长 = 两种记忆。</strong>把更新式展开成「样本的加权和」立刻看清：α = 1/t 给每个样本<strong>等权重</strong>——真正的平均，适合平稳世界；常数 α 给旧样本<strong>指数遗忘</strong>的权重——新样本占 α、全部历史挤在 1−α 里。遗忘是好是坏取决于世界：目标在漂移（机器人磨损、用户口味变化、对手在适应），你<strong>需要</strong>遗忘旧数据，小常数步长反而是正确选择；目标固定不动，遗忘只会让估计永远在真值附近抖（幅度 ∝ √α）。<strong>收敛与跟踪是一对此生不可兼得的目标</strong>——第 7 章 TD 实践中用小常数学习率，正是押注「世界可能非平稳」。', en: '<strong>Two step sizes = two kinds of memory.</strong> Unrolling the update into a weighted sum of samples makes it obvious: α = 1/t grants every sample <strong>equal weight</strong> — a true average, fit for a stationary world; a constant α weights old samples with <strong>exponential forgetting</strong> — the new sample takes α, all of history squeezes into 1−α. Whether forgetting is a bug depends on the world: if the target drifts (a robot wearing out, user tastes shifting, an opponent adapting), you <strong>need</strong> to forget, and a small constant step is the right choice; if the target is fixed, forgetting only keeps the estimate jittering around the truth forever (amplitude ∝ √α). <strong>Convergence and tracking are a pair you cannot have at once</strong> — Chapter 7’s TD uses a small constant learning rate in practice, precisely betting that "the world may be nonstationary".' },
+      { t: 'callout', variant: 'warn', zh: '<strong>两个误区。</strong>① <strong>步长设成常数还指望收敛</strong>：常数 α 违反 Σα² &lt; ∞（α²·∞ = ∞），噪声的方差贡献永远不消失，估计在真值附近永久抖动——这不是数值不稳，是理论判了刑。② <strong>把 α = 1/k 与小常数 α 的效果混为一谈</strong>：前者渐近收敛到真值，但前期步子大、后期几乎不再更新，对新信息反应迟钝；后者永远跟得上新信息，但永不精确。选哪个不是精度问题，是「你认为世界平不平稳」的立场问题。', en: '<strong>Two misconceptions.</strong> ① <strong>Setting a constant step and still expecting convergence</strong>: a constant α violates Σα² &lt; ∞ (α²·∞ = ∞), the noise variance contribution never dies, and the estimate jitters around the truth forever — not numerical instability but a theoretical sentence. ② <strong>Confusing the effects of α = 1/k and a small constant α</strong>: the former converges asymptotically to the truth but takes huge early steps and barely updates late — sluggish to new information; the latter always tracks new information but is never exact. The choice is not about accuracy — it is a stance on whether you believe the world is stationary.' },
+    ],
+  };
+
+  /* ---- §6.2 RM ---- */
+  S['l6-rm'] = {
+    kicker: 'L6 · §6.2',
+    title: { zh: 'Robbins-Monro 算法：解黑盒方程', en: 'The Robbins-Monro Algorithm: Solving Black-Box Equations' },
+    blocks: [
+      { t: 'p', zh: '想解 g(w) = 0，但 g 是黑盒：表达式未知（比如藏在神经网络里），连导数都没有，只能输入 w、收到一个<strong>带噪声的输出</strong> g̃(w,η) = g(w) + η。RM 算法只有一行：<strong>$w_{k+1} = w_{k} - a_{k}$ g̃($w_{k} , \\eta_{k}$)</strong>。书上的例子 g(w) = w³ − 5（真根 ≈ 1.71），观测噪声是标准正态，$a_{k}$ = 1/k——尽管每一步的「梯度读数」都被噪声污染，$w_{k}$ 照样滑向真根。', en: 'You want to solve g(w) = 0, but g is a black box: its expression is unknown (say, buried in a neural network), not even its derivative — you feed in w and receive a <strong>noisy reading</strong> g̃(w,η) = g(w) + η. The RM algorithm is one line: <strong>$w_{k+1} = w_{k} - a_{k}$ g̃($w_{k} , \\eta_{k}$)</strong>. The book\'s example g(w) = w³ − 5 (true root ≈ 1.71) with standard-normal noise and $a_{k}$ = 1/k — even though every gradient reading is polluted, $w_{k}$ still slides to the true root.' },
+      { t: 'widget', component: 'l6-rm' },
+      { t: 'p', zh: '<strong>为什么有效？</strong>书上先用 g(w) = tanh(w−1)（无噪声）画图讲直觉：$w_{k}$ 在真根右边时 g > 0，更新往左挪；在左边时 g < 0，更新往右挪——只要步子不太大，每步都更靠近。<strong>定理 6.1（Robbins-Monro 定理）</strong>给出严格条件：', en: '<strong>Why does it work?</strong> The book first draws the intuition on g(w) = tanh(w−1) with zero noise: right of the root g > 0, so the update moves left; left of it g < 0, so it moves right — provided steps are small, every step gets closer. <strong>Theorem 6.1 (the Robbins-Monro theorem)</strong> makes it strict with three conditions:' },
+      { t: 'steps', items: [
+        { zh: '<strong>单调条件</strong>：0 < c₁ ≤ ∇g(w) ≤ c₂——g 严格递增且斜率有界，保证根<strong>存在且唯一</strong>（若 g 是目标函数的梯度，这相当于要求凸性）。', en: '<strong>Monotonicity</strong>: 0 < c₁ ≤ ∇g(w) ≤ c₂ — g strictly increasing with bounded slope, guaranteeing the root <strong>exists and is unique</strong> (if g is an objective\'s gradient, this is convexity).' },
+        { zh: '<strong>步长条件</strong>：Σ$a_{k}$ = ∞（步子加起来要走得足够远——否则到不了根）且 Σ$a_{k} ^2$ < ∞（步子平方和要有限——否则噪声永远抖不平）。1/k 两条件全满足；常数步长违反第二条。', en: '<strong>Step-size conditions</strong>: Σ$a_{k}$ = ∞ (the total distance must suffice to reach the root) yet Σ$a_{k} ^2$ < ∞ (otherwise noise never settles). 1/k satisfies both; a constant step violates the second.' },
+        { zh: '<strong>噪声条件</strong>：E[$\\eta_{k}$|$H_{k}$] = 0 且方差有界——噪声零均值即可，不必是高斯。三条全占，$w_{k}$ <strong>几乎必然</strong>收敛到真根。', en: '<strong>Noise conditions</strong>: E[$\\eta_{k}$|$H_{k}$] = 0 with bounded variance — zero mean suffices; Gaussian is not required. With all three, $w_{k}$ converges <strong>almost surely</strong> to the true root.' },
+      ]},
+      { t: 'p', zh: '<strong>两个步长条件各自挡住哪种死法？</strong>Σ$a_{k}$ = ∞ 挡的是「走不到」：若步长总和有限（比如 $a_{k}$ = 1/k²），总位移有硬上限——初始点离根足够远时，再多的迭代也够不着。Σ$a_{k} ^2$ &lt; ∞ 挡的是「停不下」：每步噪声贡献 $a_{k}$$\\eta_{k}$，独立噪声的方差直接相加，累计方差 ∝ σ²Σ$a_{k} ^2$——平方和发散，抖动永不平息。1/k 恰好两头都占：调和级数发散（走得够远），平方和收敛（抖得够停）。合起来的直觉只有一句话：<strong>步长要大到能走遍任何距离，又要小到能抹平任何噪声</strong>——走钢丝般的平衡。', en: '<strong>Which failure does each step-size condition prevent?</strong> Σ$a_{k}$ = ∞ prevents "never arriving": if the total step is finite (say $a_{k}$ = 1/k²), the total displacement has a hard cap — start far enough from the root and no number of iterations suffices. Σ$a_{k} ^2$ &lt; ∞ prevents "never settling": each step’s noise contributes $a_{k}$$\\eta_{k}$, independent noises add variances directly, and the accumulated variance ∝ σ²Σ$a_{k} ^2$ — with a divergent squared sum, the wobble never calms. 1/k threads both needles: the harmonic series diverges (far enough) while its square sums (still enough). The joint intuition fits in one sentence: <strong>steps must be large enough to cover any distance, yet small enough to erase any noise</strong> — a tightrope balance.' },
+      { t: 'formula', lbl: '噪声的方差累积 · How noise accumulates',
+        tex: String.raw`w_k - w^*\,\text{的方差} \approx \sigma^2 \sum_k a_k^2`,
+        note: 'Σ<i class="fx-inline" data-tex="a_{k} ^2"></i> &lt; ∞ ⟹ 抖动消失 &nbsp;·&nbsp; Σ<i class="fx-inline" data-tex="a_{k}"></i> = ∞ ⟹ 任何初始距离都走得完' },
+      { t: 'formula', lbl: "步长级数的直觉：欧拉-马歇罗尼 vs Basel 级数 · Series Intuition (L6 Slides 16–20)",
+        tex: String.raw`\lim_{n\to\infty}\!\left(\sum_{k=1}^n \frac{1}{k} - \ln n\right) = \gamma_{\mathrm{EM}} \approx 0.5772\;(\sum \tfrac{1}{k}=\infty) \qquad\text{·}\qquad \sum_{k=1}^\infty \frac{1}{k^2} = \frac{\pi^2}{6} \approx 1.6449\;({<}\,\infty)`,
+        note: "欧拉-马歇罗尼常数说明调和级数以 $\\ln n$ 速率发散（能走遍任何初始距离）；Basel 级数收敛于 $\\pi^2/6$（噪声累计方差被封顶）" },
+      { t: 'p', zh: '<strong>收敛率：随机噪声让收敛慢一阶。</strong>把确定性迭代和随机迭代放在同一把尺上：求根/梯度类的确定性迭代，误差通常以 O(1/t) 衰减；RM、SGD 这类随机迭代，误差典型只有 O(1/√t)。直觉可以数出来：取 $a_{k}$ = 1/k，信号部分（初始偏差）每轮按步长折减，累计约 O(1/t)；噪声部分按「平方和的平方根」累积——√(Σ1/k²) ≈ 1/√t——噪声项反而成了瓶颈。所以带噪声的更新不是免费的：同样预算下，精度差一个 √t 的因子。它也解释了神经网络训练里常见的「精度墙」：那是方差砌的墙，多算一步只便宜 1/√t。', en: '<strong>Convergence rate: noise costs an order.</strong> Put deterministic and stochastic iterations on the same ruler: deterministic root-finding or gradient iterations typically decay at O(1/t); RM- and SGD-style stochastic iterations typically achieve only O(1/√t). The intuition is countable: with $a_{k}$ = 1/k, the signal part (the initial bias) is scaled down by the step each round, accumulating to roughly O(1/t); the noise part accumulates as the square root of the squared sum — √(Σ1/k²) ≈ 1/√t — and the noise term becomes the bottleneck. Noisy updates are not free: at equal budget, accuracy is worse by a factor of √t. It also explains the familiar "accuracy wall" in neural-network training: a wall built of variance, where each extra step buys only 1/√t.' },
+      { t: 'formula', lbl: '速率对比 · The rate comparison',
+        tex: String.raw`\mathbb{E}|w_t - w^*| \lesssim \htmlClass{fx-green}{C_1/t}\text{（信号/偏置）} + \htmlClass{fx-red}{C_2/\sqrt{t}}\text{（噪声）} \;\Longrightarrow\; \text{随机}：O(1/\sqrt{t})\ \text{vs.}\ \text{确定性}：O(1/t)` },
+      { t: 'p', zh: '<strong>定理 6.2（Dvoretzky 定理）</strong>是它的升级版：允许步长 $a_{k}$ 和噪声偏置 $\\beta_{k}$ 是随机的（依赖历史 $H_{k}$），条件改为 $\\Sigma \\alpha_{k}$ = ∞、$\\Sigma \\alpha_{k} ^2$ < ∞、Σβ<sub>k</sub>² < ∞（一致几乎 surely）加噪声零均值有界方差。它是最优值收敛证明（第 7 章 Q-learning）实际引用的工具。', en: '<strong>Theorem 6.2 (Dvoretzky\'s theorem)</strong> is the upgrade: the step sizes $a_{k}$ and a noise term $\\beta_{k}$ may be random (history-dependent), with conditions $\\Sigma \\alpha_{k}$ = ∞, $\\Sigma \\alpha_{k} ^2$ < ∞, Σβ<sub>k</sub>² < ∞ (uniformly almost surely) plus zero-mean bounded-variance noise. It is the tool actually cited in the optimal-value convergence proofs (Q-learning, Chapter 7).' },
+      { t: 'p', zh: '<strong>RM 是全书下半场的通用底座。</strong>回头看会发现：本章之后出现的每一个核心算法，骨架都是 w ← w + α(目标 − w)，区别只在「估计什么、目标是什么、步长怎么排」。趁热把这张族谱记牢——第 7 章每次抛出新算法时，先在心里对号入座，学习负担会小一半。', en: '<strong>RM is the universal chassis of the book’s second half.</strong> In hindsight, every core algorithm from here on shares the skeleton w ← w + α(target − w), differing only in "what is estimated, what the target is, how the step is scheduled". Memorise this family tree while it is warm — each time Chapter 7 unveils a new algorithm, seat it here first and the learning burden halves.' },
+      { t: 'steps', items: [
+        { zh: '<strong>公共骨架</strong>：w ← w + α(目标 − w)。改的永远是「目标」和「步长」，骨架一个字不动。', en: '<strong>The shared skeleton</strong>: w ← w + α(target − w). What changes is always the "target" and the "step"; the skeleton never moves.' },
+        { zh: '<strong>增量均值</strong>（§6.1）：估计 = 均值，目标 = 样本 $x_{k}$，步长 = 1/k。', en: '<strong>Incremental mean</strong> (§6.1): estimate = the mean, target = the sample $x_{k}$, step = 1/k.' },
+        { zh: '<strong>SGD</strong>（§6.4）：估计 = 参数，目标 = 单样本梯度 ∇f(w, x)，步长 = $\\alpha_{k}$。', en: '<strong>SGD</strong> (§6.4): estimate = parameters, target = the one-sample gradient ∇f(w, x), step = $\\alpha_{k}$.' },
+        { zh: '<strong>TD(0)</strong>（L7）：估计 = v(s)，目标 = r + γv(s′)——目标从「样本」换成了「自举量」。', en: '<strong>TD(0)</strong> (L7): estimate = v(s), target = r + γv(s′) — the target becomes a bootstrapped quantity.' },
+        { zh: '<strong>Sarsa</strong>（L7）：估计 = q(s,a)，目标 = r + γq(s′,a′)——on-policy 版本。', en: '<strong>Sarsa</strong> (L7): estimate = q(s,a), target = r + γq(s′,a′) — the on-policy version.' },
+        { zh: '<strong>Q-learning</strong>（L7）：估计 = q(s,a)，目标 = r + γ $\\max_{a}$ q(s′,a)——off-policy 版本，收敛证明直接引用 Dvoretzky 定理。', en: '<strong>Q-learning</strong> (L7): estimate = q(s,a), target = r + γ $\\max_{a}$ q(s′,a) — the off-policy version, whose convergence proof cites Dvoretzky’s theorem directly.' },
+      ]},
+    ],
+  };
+
+  /* ---- §6.4 SGD ---- */
+  S['l6-sgd'] = {
+    kicker: 'L6 · §6.4',
+    title: { zh: 'SGD：RM 的成名弟子', en: 'SGD: The Famous Disciple of RM' },
+    blocks: [
+      { t: 'p', zh: '优化问题 min J(w) = E[f(w, X)]：目标含期望，分布未知，批量采样又太贵。<strong>随机梯度下降</strong>只拿一个样本就更新：<strong>$w_{k+1} = w_{k} - \\alpha_{k}$$\\nabla_{w}$f($w_{k} , x_{k}$)</strong>——把真梯度 E[∇f] 换成单样本的随机梯度。书上证明它是 RM 的特例：取 g(w) = ∇J(w)，则随机梯度 = 真梯度 + 零均值噪声 $\\eta_{k}$，这解释了平均更新方向；收敛还依赖目标的性质、噪声控制和步长条件。而增量均值又是 SGD 的特例（f = ½(w − x)² 时随机梯度恰为 w − x）。<strong>三代同堂：RM → SGD → 增量均值。</strong>', en: 'Optimise min J(w) = E[f(w, X)]: the objective contains an expectation, the distribution is unknown, batch sampling is dear. <strong>Stochastic gradient descent</strong> updates on a single sample: <strong>$w_{k+1} = w_{k} - \\alpha_{k}$$\\nabla_{w}$f($w_{k} , x_{k}$)</strong> — the true gradient E[∇f] replaced by a one-sample stochastic gradient. The book proves it is a special RM: set g(w) = ∇J(w) and the stochastic gradient equals the true gradient plus zero-mean noise $\\eta_{k}$ — convergence additionally depends on the objective, step sizes and noise bounds. And the incremental mean is a special SGD (with f = ½(w − x)² the stochastic gradient is exactly w − x). <strong>Three generations: RM → SGD → incremental mean.</strong>' },
+      { t: 'widget', component: 'l6-sgd' },
+      { t: 'p', zh: '<strong>为什么单个样本就敢当梯度用？</strong>因为它是<strong>无偏</strong>的：E[$\\nabla_{w}$f(w, X)] = ∇J(w)——随机梯度噪声很大，但期望恰好是真梯度，「平均意义上方向是对的」。剩下的全是方差问题：单样本的方差是 var[X] 级别；mini-batch 把 m 个独立同分布的梯度样本平均，方差除以 m。m 因此是一笔明码标价的「稳定预算」：m 越大越稳（Figure 6.5 的曲线越平滑），每步算力也线性变贵。SGD（m = 1）与 BGD（m = 全部）是同一根价格轴的两端，MBGD 在中间挑性价比。', en: '<strong>Why does a single sample dare to stand in for the gradient?</strong> Because it is <strong>unbiased</strong>: E[$\\nabla_{w}$f(w, X)] = ∇J(w) — the stochastic gradient is noisy, but its expectation is exactly the true gradient; "correct in direction, on average". All that remains is variance: a single sample carries var[X]-level variance; a mini-batch averages m samples and divides the variance by m. So m is a stability budget with a price tag: larger m is steadier (smoother curves in Figure 6.5) and linearly pricier per step. SGD (m = 1) and BGD (m = all) sit at the two ends of one price axis; MBGD shops in the middle for value.' },
+      { t: 'formula', lbl: '无偏性与方差的明码标价 · Unbiasedness, and variance with a price tag',
+        tex: String.raw`\mathbb{E}[\nabla_w f(w, x)] = \nabla J(w)\;\htmlClass{fx-dim}{\text{(无偏)}} \qquad\text{·}\qquad \operatorname{var}[\text{独立同分布 mini-batch 梯度}] = \htmlClass{fx-accent}{\frac{\operatorname{var}[\text{单样本梯度}]}{m}}` },
+      { t: 'p', zh: '书上 Figure 6.5 的现象值得单独记住：<strong>SGD 的收敛曲线是「远快近晃」</strong>——离最优远时随机性相对可忽略、下降飞快；靠近后随机性主导，曲线在解附近永久小幅晃动。批量版 MBGD（每次 m 个样本）在中间：比 SGD 稳、比 GD 灵活。神经网络训练里「学习率衰减」的本质，就是把 $a_{k}$ 从常数缓慢调成 1/k 的形状。', en: 'A phenomenon from the book\'s Figure 6.5 worth memorising: SGD converges “fast when far, wobbly when near” — far from the optimum the randomness is relatively negligible and descent is rapid; close to it, randomness dominates and the curve jitters around the solution forever. Mini-batch MBGD (m samples per update) sits between: steadier than SGD, nimbler than GD. The essence of “learning-rate decay” in neural-network training is morphing $a_{k}$ from a constant toward the 1/k shape.' },
+      { t: 'callout', variant: "key",
+        zh: "<strong>讲义补遗（L6 Slides 37–46）· 两个常见错觉：</strong>① <strong>有放回抽 $m=n$ 的 MBGD 并「不等于」BGD</strong>：从 $n$ 个样本中独立有放回抽 $n$ 次，平均只覆盖约 $(1-e^{-1})n \\approx 63.2\\%$ 个不重复样本（部分样本重复抽取，梯度仍有方差），只有无放回全集遍历才是确定性 BGD；② <strong>相对误差 $\\delta_k = \\frac{|w_k - w^*|}{|w^*|}$ 视角</strong>：远离真解时真实漂移远大于随机梯度噪声，因此前期下降直逼 BGD；接近 $w^*$ 后信号变弱而常数步长决定噪声半径，于是停在邻域内震荡（说明后期学习率衰减的必要）。",
+        en: "<strong>Slide Addendum (L6 Slides 37–46) · Two Subtle Points:</strong> ① <strong>MBGD with replacement at $m=n$ is NOT BGD</strong>: drawing $n$ i.i.d. samples with replacement touches only $\\approx (1-e^{-1})n \\approx 63.2\\%$ distinct items per batch—gradient variance remains unless every sample is swept deterministically without replacement; ② <strong>Relative-error view $\\delta_k = |w_k - w^*|/|w^*|$</strong>: far from $w^*$, deterministic drift dominates stochastic noise, tracking BGD; near $w^*$, constant step-size noise sets an irreducible neighborhood oscillation floor." },
+    ],
+  };
+
+  /* ---- §6.5 总结 ---- */
+  S['l6-summary'] = {
+    kicker: 'L6 · §6.5',
+    title: { zh: '本章总结：给 TD 交的基础学费', en: 'Chapter Summary: The Foundation Fee for TD' },
+    blocks: [
+      { t: 'p', zh: '本章没讲任何新的强化学习算法，却交齐了后面所有学费：<strong>增量均值</strong>（第一条随机迭代式）、<strong>RM 算法</strong>（黑盒求根 + 三条件收敛）、<strong>Dvoretzky 定理</strong>（随机步长版，Q-learning 收敛证明引用的工具）、<strong>SGD/MBGD</strong>（机器学习的日常主食，RM 的特例）。一句话：随机近似 = 用带噪声的增量更新逼近目标，γ< 1 之外的第二台「收敛发动机」在这里点火。', en: 'No new RL algorithms this chapter — but every future fee is paid: the <strong>incremental mean</strong> (our first stochastic iteration), the <strong>RM algorithm</strong> (black-box root-finding + three-condition convergence), <strong>Dvoretzky\'s theorem</strong> (the random-step-size version cited by Q-learning\'s proof), and <strong>SGD/MBGD</strong> (machine learning\'s daily bread, special cases of RM). In one line: stochastic approximation = noisy incremental updates approaching a target — the second “convergence engine”, ignited here beside γ < 1.' },
+      { t: 'callout', variant: 'done', zh: '<strong>离场自检。</strong>① 能从 $\\bar{x}_{k+1}$ 的代数展开推出增量更新式；② 能说出 RM 三条件各挡住哪种失败（单调挡多根、Σa = ∞ 挡走不到、Σa² &lt; ∞ 挡停不下）；③ 能解释 1/k 为何两条件全中、常数步长为何必失其一；④ 能把 TD 更新式拆成「估计 / 目标 / 步长」三件套并指出它是 RM 的特例；⑤ 能说出随机方法的收敛率为什么慢一阶（噪声按 √(Σa²) 累积）。五题全过，第 7 章的门就开了。', en: '<strong>Exit self-check.</strong> ① Derive the incremental update from the algebra of $\\bar{x}_{k+1}$; ② name the failure each RM condition prevents (monotonicity prevents multiple roots; Σa = ∞ prevents never-arriving; Σa² &lt; ∞ prevents never-settling); ③ explain why 1/k satisfies both conditions while a constant step must fail one; ④ decompose the TD update into estimate / target / step-size and identify it as special RM; ⑤ say why stochastic methods converge one order slower (noise accumulates as √(Σa²)). Pass all five, and Chapter 7’s door is open.' },
+      { t: 'p', zh: '<strong>两台收敛发动机，即将同时点火。</strong>第一台在 L3–L4 点燃：γ &lt; 1 的压缩性，保证 Bellman 算子的迭代收敛——那是「确定性世界」的发动机。第二台在本章点燃：随机近似的步长条件，保证带噪声的更新收敛——这是「随机世界」的发动机。第 7 章的 TD 更新同时踩着两台：更新目标里嵌着 Bellman 算子（γ &lt; 1），更新过程却是随机采样（RM 条件），收敛证明是两台发动机的合奏——这也解释了为什么 TD 的学习率不能随便取，它得同时伺候好两个主人。', en: '<strong>Two convergence engines, about to fire together.</strong> The first ignited in L3–L4: the contraction property of γ &lt; 1, guaranteeing convergence of Bellman-operator iterations — the engine of the deterministic world. The second ignites in this chapter: the stochastic-approximation step-size conditions, guaranteeing convergence of noisy updates — the engine of the stochastic world. Chapter 7’s TD update steps on both at once: its target embeds the Bellman operator (γ &lt; 1) while its updates are driven by random samples (RM conditions), and the convergence proof is a duet of the two engines — which is also why TD’s learning rate cannot be chosen casually: it must serve two masters at once.' },
+      { t: 'widget', component: 'concept-chain', props: { nodes: [
+        {"zh":"随机近似","en":"stochastic approx.","d":{"zh":"用带噪声的增量更新逼近目标：增量均值、RM、Dvoretzky、SGD/MBGD 全是这套语言。","en":"Approach a target with noisy incremental updates: incremental mean, RM, Dvoretzky and SGD/MBGD all speak this language."}},
+        {"zh":"RM 三条件","en":"RM conditions","d":{"zh":"单调挡多根、Σa = ∞ 挡走不到、Σa² 有界挡停不下——各挡住一种失败。","en":"Monotonicity blocks extra roots, Σa = ∞ keeps it moving, bounded Σa² lets it settle — each condition blocks one failure."}},
+        {"zh":"步长的讲究","en":"step size","d":{"zh":"1/k 两条件全中；常数步长必失其一，价值在真值附近永久振荡。","en":"1/k meets both conditions; a constant step forfeits one and oscillates forever around the truth."}},
+        {"zh":"第二台发动机","en":"second engine","d":{"zh":"γ 小于 1 是确定性世界的发动机，步长条件是随机世界的——第 7 章的 TD 同时踩着两台。","en":"γ below 1 powers the deterministic world, the step-size conditions power the random one — Chapter 7's TD stands on both."}},
+      ] } },
+      { t: 'callout', variant: 'idea', zh: '下一课预告：把增量均值更新式 $w_{k+1} = w_{k} - \\alpha_{k} ( w_{k} - x_{k}$) 里的 $x_{k}$ 换成"r + γv(s′)"——这就是<strong>TD(0)</strong>。名字换了，骨子里是 RM。第 7 章还打包赠送 Sarsa 和 Q-learning 两位大人物。', en: 'Next lecture teaser: in the incremental-mean update $w_{k+1} = w_{k} - \\alpha_{k} ( w_{k} - x_{k}$), replace $x_{k}$ by “r + γv(s′)” — that is <strong>TD(0)</strong>. New name, RM bones. Chapter 7 also introduces two celebrities: Sarsa and Q-learning.' },
+    ],
+  };
+
+  /* ---- L6 长推理 ---- */
+  S['l6-reasoning'] = {
+    kicker: 'L6 · 贯通 · Synthesis',
+    title: { zh: '连贯长推理：一条更新式的家族史', en: 'The Long Coherent Reasoning: The Family Tree of One Update Rule' },
+    blocks: [
+      { t: 'p', zh: '本章推理链：批量均值慢 → 展开成增量式 → 步长抽象成 $\\alpha_{k}$ → 解黑盒方程的 RM → 收敛三条件 → Dvoretzky 放宽到随机步长 → SGD 是 RM 特例、增量均值是 SGD 特例 → 下一课 TD 坐享其成。', en: 'This chapter\'s spine: batch means are slow → unfold into the incremental form → abstract the step to $\\alpha_{k}$ → RM for black-box equations → three convergence conditions → Dvoretzky relaxes to random steps → SGD is special RM and incremental mean is special SGD → TD will cash it all in next lecture.' },
+      { t: 'widget', component: 'reasoning-lab', props: { source: 'l6' } },
+    ],
+  };
+
+  /* ---- L6 代码 ---- */
+  S['l6-code'] = {
+    kicker: 'L6 · 动手 · Hands-on',
+    title: { zh: '代码精讲：RM 与增量均值，各十行', en: 'Code Walkthrough: RM and the Incremental Mean, Ten Lines Each' },
+    blocks: [
+      { t: 'p', zh: '这节课的代码短到不像话，但每一行都对应定理的一个条件。特别注意步长 schedules 的写法——Σ$a_{k}$ = ∞ 而 Σ$a_{k} ^2$ < ∞ 的族谱（1/k、1/kᵖ (p∈(0.5,1])）与常数步长的本质区别全在这里。', en: 'This lecture\'s code is absurdly short, yet every line maps to a theorem condition. Watch how the step-size schedules are written — the family satisfying Σ$a_{k}$ = ∞ while Σ$a_{k} ^2$ < ∞ (1/k, 1/kᵖ with p ∈ (0.5,1]) versus constant steps is the whole story.' },
+      { t: 'widget', component: 'code-lab', props: { source: 'l6' } },
+      { t: 'widget', component: 'notebook-bridge', props: { nb: 'nb3' } },
+    ],
+  };
+
+  /* ---- L6 Q&A ---- */
+  S['l6-qa'] = {
+    kicker: 'L6 · §6.6',
+    title: { zh: '问答：随机近似六连问', en: 'Q&A: Six Questions on Stochastic Approximation' },
+    blocks: [
+      { t: 'p', zh: '书上的问答直击「为什么要学这一章」——答案都指向第 7 章。', en: 'The book\'s Q&As hit “why study this chapter” — every answer points to Chapter 7.' },
+      { t: 'p', zh: '翻卡前先过三题：① 「为什么学一个没有 RL 算法的章节」（因为第 7 章的 TD 在数学上<strong>就是</strong> RM——目标换成 r + γv(s′)）；② 「步长到底怎么设」（平稳目标用衰减步长、非平稳用小常数；理论上要满足 Σα = ∞ 且 Σα² &lt; ∞）；③ 「SGD 每次只用一个样本会不会走错方向」（无偏——方向平均正确，代价是方差和 1/√t 的收敛率）。', en: 'Before flipping, run through three: ① "why study a chapter with no RL algorithms" (because Chapter 7’s TD mathematically <strong>is</strong> RM — with the target replaced by r + γv(s′)); ② "how should the step size be set" (decaying for stationary targets, small constants for nonstationary ones; theory demands Σα = ∞ with Σα² &lt; ∞); ③ "does one sample per step lead SGD astray" (unbiased — correct on average, at the price of variance and the 1/√t rate).' },
+      { t: 'widget', component: 'qa-lab', props: { source: 'l6' } },
+      { t: 'widget', component: 'fill-lab', props: { source: 'l6' } },
+      { t: 'widget', component: 'derivation-lab', props: { source: 'l6' } },
+    ],
+  };
+
+  /* ═══ L6 长推理链 ═══ */
+  D.reasoningSets['l6'] = [
+    { link: '起点 · Start',
+      title: { zh: '攒一批再算，太慢了', en: 'Batch first, compute later — too slow' },
+      zh: 'MC 式均值估计要攒够一批样本再除以 n。流式数据（机器人每秒都在动）等不起。能不能来一个样本更新一次？',
+      en: 'MC-style estimation waits for a batch, then divides by n. Streaming data (a robot moving every second) cannot wait. Can we update on every single sample?',
+      question: { zh: '旧估计和新样本之间是什么代数关系？', en: 'What is the algebraic link between the old estimate and the new sample?' } },
+    { link: '展开 · Unfold',
+      title: { zh: '批量平均展开成增量式', en: 'Unfold the batch average into an increment' },
+      zh: 'x̄_{k+1} = (1/k)((k−1)x̄_k + x_k) 整理得 w_{k+1} = w_k − (1/k)(w_k − x_k)：新估计 = 旧估计 − 步长×(旧估计−样本)。“目标 − 当前”这个差是全部动力。',
+      en: 'x̄_{k+1} = (1/k)((k−1)x̄_k + x_k) rearranges to w_{k+1} = w_k − (1/k)(w_k − x_k): new = old − step×(old − sample). The gap “target − current” is the entire engine.',
+      question: { zh: '步长 1/k 能换成别的吗？换了还收敛吗？', en: 'Can 1/k be replaced by other step sizes and still converge?' } },
+    { link: '抽象 · Abstract',
+      title: { zh: 'α_k 上位：一般随机迭代', en: 'Promote α_k: the general stochastic iteration' },
+      zh: 'w_{k+1} = w_k − α_k(w_k − x_k)。α_k = 1/k 是“精确平均”；别的正序列是“带遗忘的学习”。这是全书第一条通用更新式——它的每个部件（步长、目标、旧估计）都将在 TD 里换名字。',
+      en: 'w_{k+1} = w_k − α_k(w_k − x_k). α_k = 1/k is exact averaging; other positive sequences are “learning with forgetting”. This is the book’s first universal update — every part (step, target, old estimate) will be renamed inside TD.',
+      question: { zh: '这条式子最远能推广到什么问题？', en: 'How far can this incremental update generalize?' } },
+    { link: '黑盒 · Black box',
+      title: { zh: 'RM 算法：只有输入输出也能解方程', en: 'RM: solving equations with input-output only' },
+      zh: '解 g(w) = 0，g 表达式未知、只能拿到带噪声读数 g̃ = g + η。更新 w_{k+1} = w_k − a_k g̃：读数为正就往左、为负就往右，噪声靠期望归零。黑盒、无导数、甚至噪声非高斯都可以。',
+      en: 'Solve g(w) = 0 where g is unknown and only noisy readings g̃ = g + η are available. Update w_{k+1} = w_k − a_k g̃: positive reading moves left, negative moves right; noise vanishes in expectation. Black box, no derivative, not even Gaussian noise required.',
+      question: { zh: '凭什么保证它收敛而不是被噪声带偏？', en: 'What guarantees convergence instead of drifting with noise?' } },
+    { link: '三条件 · Three conditions',
+      title: { zh: '定理 6.1：单调 + 步长 + 噪声', en: 'Theorem 6.1: monotone + step sizes + noise' },
+      zh: '① 0 < c₁ ≤ ∇g ≤ c₂：根存在唯一；② Σa_k = ∞ 且 Σa_k² < ∞：走得到、又抖得停（1/k 满足，常数步长违反后者）；③ 噪声零均值方差有界。三条全占 ⟹ 几乎必然收敛。Dvoretzky 定理再把步长放宽成随机变量——正是 Q-learning 里 α 取决于访问次数的情形。',
+      en: '① 0 < c₁ ≤ ∇g ≤ c₂: the root exists and is unique; ② Σa_k = ∞ with Σa_k² < ∞: you get there, and the wobble settles (1/k qualifies; constant steps fail the second); ③ zero-mean bounded-variance noise. All three ⟹ almost-sure convergence. Dvoretzky’s theorem further allows random step sizes — exactly Q-learning’s α depending on visit counts.',
+      question: { zh: '机器学习里的 SGD 也是它吗？', en: 'Is machine-learning SGD a special case of this rule too?' } },
+    { link: '认亲 · Family',
+      title: { zh: 'SGD 是 RM 的特例，增量均值是 SGD 的特例', en: 'SGD is special RM; incremental mean is special SGD' },
+      zh: '取 g(w) = ∇J(w)，随机梯度 = 真梯度 + 零均值噪声——SGD 可写成 RM 形式，应用收敛定理前须另验其条件；再取 f = ½(w−x)²，随机梯度退化为 w−x——SGD 又退化为增量均值。三代同堂，一脉相承：TD 用的还是这条式子，只是目标换成 r + γv(s′)。',
+      en: 'Set g(w) = ∇J(w): the stochastic gradient is the true gradient plus zero-mean noise — SGD has the RM form; its convergence conditions must be checked separately; then set f = ½(w−x)² and the stochastic gradient degenerates to w−x — SGD becomes the incremental mean. Three generations, one bloodline: TD will reuse the very same rule with target r + γv(s′).',
+      question: null },
+  ];
+
+  /* ═══ L6 代码块 ═══ */
+  const srcRM = `import numpy as np
+
+def rm_rootfinding(g_noisy, w1=0.0, schedule=lambda k: 1.0 / k, n=500):
+    """Robbins-Monro (Eq. 6.5):  w_{k+1} = w_k - a_k * g_tilde(w_k, eta_k).
+    g_noisy(w) returns the NOISY reading g(w) + eta. No expressions needed."""
+    w = w1
+    trace = [w]
+    for k in range(1, n + 1):
+        a_k = schedule(k)
+        w = w - a_k * g_noisy(w)           # the entire algorithm is this line
+        trace.append(w)
+    return w, trace
+
+def make_schedules():
+    """Step-size families vs. the two summability conditions:
+       sum a_k = oo (must travel far), sum a_k^2 < oo (noise must settle)."""
+    return {
+        "1/k      (both hold -> converges)":   lambda k: 1.0 / k,
+        "1/k^0.75 (both hold -> converges)":   lambda k: 1.0 / k ** 0.75,
+        "0.5      (sum^2 = oo -> jitters)":    lambda k: 0.5,
+        "2.0      (overshoots -> diverges)":   lambda k: 2.0,
+    }
+
+if __name__ == "__main__":
+    true_root = 5 ** (1 / 3)                       # ~ 1.71 for g(w) = w^3 - 5
+    rng = np.random.default_rng(0)
+    g_noisy = lambda w: (w ** 3 - 5) + rng.normal()  # black box + N(0,1) noise
+    for name, sch in make_schedules().items():
+        w, _ = rm_rootfinding(g_noisy, schedule=sch, n=2000)
+        print(f"{name:38s} -> w = {w:8.3f}")
+    print("true root:", round(true_root, 3))`;
+
+  const srcInc = `def incremental_mean(samples):
+    """Eq. 6.2 -- and a special case of SGD with f(w,x) = 0.5*(w-x)**2:
+       w_{k+1} = w_k - (1/k)*(w_k - x_k)
+    O(1) memory: no need to store the samples at all."""
+    w = 0.0
+    for k, x in enumerate(samples, start=1):
+        w = w - (1.0 / k) * (w - x)     # same as w += (x - w)/k
+    return w
+
+def sgd_mean(samples, alpha=0.1, w0=0.0):
+    """The same problem via SGD (Eq. 6.13) with a CONSTANT step:
+       w_{k+1} = w_k - alpha*(w_k - x_k)
+    Constant alpha -> converges to a NEIGHBORHOOD, then jitters forever."""
+    w = w0
+    for x in samples:
+        w = w - alpha * (w - x)
+    return w`;
+
+  D.codeFileSets['l6'] = [
+    {
+      id: 'l6-rm-code', file: 'robbins_monro.py — 黑盒求根', tab: '① RM 算法',
+      intro: { zh: 'RM 的实现短得像玩笑：算法本体一行。真正值得读的是 <code class="inline">make_schedules</code>——四个步长家族是定理 6.1 条件②的活标本：前两个收敛、常数步长抖动、2.0 发散。跑一遍 main，输出就是条件②的实验证明。', en: 'The RM implementation is a joke it is so short — the algorithm is one line. The real reading is <code class="inline">make_schedules</code>: the four step-size families are living specimens of Theorem 6.1\'s condition (b) — the first two converge, constant steps jitter, 2.0 diverges. Run main once: the output is condition (b)\'s experimental proof.' },
+      code: srcRM,
+      notes: [
+        { lines: [7, 8], tag: 'one line ★', zh: '<strong>算法全部内容</strong>：<code class="inline">w - a_k * g_noisy(w)</code>。注意 g_noisy 是黑盒调用——实现里没有 g 的表达式、没有导数、连噪声分布都不关心（只要零均值）。这正是「随机近似不需要表达式」的字面意思。', en: '<strong>The entire algorithm</strong>: <code class="inline">w - a_k * g_noisy(w)</code>. Note g_noisy is a black-box call — no expression for g, no derivative, not even the noise distribution matters (zero mean suffices). This is “stochastic approximation needs no expression”, taken literally.' },
+        { lines: [13, 19], tag: 'schedules', zh: '四个步长家族对应定理条件②的四种命运。面试级细节：p ∈ (0.5, 1] 的 1/k^p 都满足两条件——p > 0.5 保证平方可和。常数步长 Σa² = ∞ 永不安静；大常数直接发散。', en: 'Four step-size families map to four fates under condition (b). Interview-grade detail: 1/k^p for p ∈ (0.5, 1] satisfies both summability conditions — p > 0.5 makes the squares sum finite. Constant steps have Σa² = ∞ and never settle; large constants diverge outright.' },
+        { lines: [26, 30], tag: 'main', zh: '噪声用 <code class="inline">rng.normal()</code> 每次重新抽——每次观测都不同，但估计照样收敛：这就是「几乎必然收敛」的日常版本。把 n 从 2000 调到 200，你会看到 1/k 的估计还没走到根——Σa_k = ∞ 需要「足够远的总路程」。', en: 'The noise <code class="inline">rng.normal()</code> is redrawn per observation — every reading differs, yet the estimate still converges: “almost sure convergence” in daily dress. Drop n from 2000 to 200 and the 1/k estimate has not yet arrived — Σa_k = ∞ demands “enough total distance”.' },
+      ],
+    },
+    {
+      id: 'l6-inc-code', file: 'incremental_mean.py — 增量均值与 SGD', tab: '② 增量均值 = 特例',
+      intro: { zh: '两个函数解同一个问题（估均值），差别只在步长：<code class="inline">1/k</code> 对 <code class="inline">常数 α</code>。这是书 Figure 6.5 的 1D 版本：常数步长先快速逼近、再在邻域内永久抖动。第 7 章的 TD 学习率也是这两种选择的博弈。', en: 'Two functions, one problem (estimate a mean), differing only in the step: <code class="inline">1/k</code> vs. a <code class="inline">constant α</code>. This is the 1-D version of the book\'s Figure 6.5: constant steps approach fast, then jitter in a neighbourhood forever. Chapter 7\'s TD learning rates play this exact game.' },
+      code: srcInc,
+      notes: [
+        { lines: [7, 7], tag: 'incremental ★', zh: '<code class="inline">w -= (1/k)*(w - x)</code> 与 <code class="inline">w += (x - w)/k</code> 数学相同，写法不同：后者读作「往新样本挪动 1/k 的距离」——强化学习代码里更常见的是这种写法（TD 误差 × 学习率）。', en: '<code class="inline">w -= (1/k)*(w - x)</code> equals <code class="inline">w += (x - w)/k</code> mathematically but reads differently: “move toward the new sample by a 1/k fraction” — the form RL code prefers (TD error × learning rate).' },
+        { lines: [4, 5], tag: 'O(1) memory', zh: '增量式的隐藏福利：<strong>内存 O(1)</strong>。批量法要存全部样本，增量法处理完即扔——流式场景（机器人持续运行）的唯一选择。这是「非增量 → 增量」除了速度外的第二个动机。', en: 'The hidden bonus of the incremental form: <strong>O(1) memory</strong>. Batch methods store every sample; incremental methods discard as they go — the only option for streaming settings (a robot running for days). A second motive beyond speed for “non-incremental → incremental”.' },
+        { lines: [17, 19], tag: 'constant α', zh: '常数 α 的结局由 RM 理论精确预言：Σα² = ∞ ⟹ 方差项不消失 ⟹ 永久抖动。平稳抖动方差 ~ ασ²/(2−α)（一阶于 α）——把 α 减半，方差约减半、幅度 ×1/√2。这正是学习率衰减 schedules（step decay、cosine…）的理论根源。', en: 'A constant α\'s fate is precisely predicted by RM theory: Σα² = ∞ means the variance term never vanishes — perpetual jitter, with stationary variance ~ ασ²/(2−α) (first-order in α): halve α and the variance roughly halves (amplitude ×1/√2). This is the theoretical root of learning-rate decay schedules (step decay, cosine, …).' },
+      ],
+    },
+  ];
+
+  /* ═══ L6 Q&A ═══ */
+  D.qaSets['l6'] = [
+    { tag: 'Q1 · 书上原问', q: { zh: '什么是随机近似？', en: 'What is stochastic approximation?' },
+      a: { zh: '一大类<strong>随机的迭代算法</strong>，用于求解求根或优化问题——每步更新都带着噪声，但只要步长和噪声满足条件，迭代仍然收敛到目标。', en: 'A broad class of <strong>stochastic iterative algorithms</strong> for root-finding or optimisation — every update carries noise, yet under step-size and noise conditions the iteration still converges to the target.' } },
+    { tag: 'Q2 · 书上原问', q: { zh: '为什么要研究随机近似？', en: 'Why study stochastic approximation?' },
+      a: { zh: '因为第 7 章的时序差分算法<strong>就是</strong>随机近似算法。先学本章，第 7 章看到 TD 更新式时就不会感到突兀——它的收敛证明直接引用本章的定理。', en: 'Because the temporal-difference algorithms of Chapter 7 <strong>are</strong> stochastic approximation algorithms. Learning this chapter first means the TD update will not appear out of nowhere — its convergence proof cites this chapter\'s theorems.' } },
+    { tag: 'Q3 · 书上原问', q: { zh: '为什么本章反复讨论均值估计？', en: 'Why does this chapter keep returning to mean estimation?' },
+      a: { zh: '因为状态值和动作值都定义为随机变量的均值，而 TD 算法的形态与均值估计的随机近似算法几乎一模一样——它们是同一个式子的不同马甲。', en: 'Because state and action values are defined as means of random variables, and the TD algorithms look almost identical to the stochastic-approximation form of mean estimation — different costumes, same equation.' } },
+    { tag: 'Q4 · 书上原问', q: { zh: 'RM 算法比其他求根算法好在哪？', en: 'What is the advantage of RM over other root-finding methods?' },
+      a: { zh: '它<strong>不需要目标函数的表达式或导数</strong>——纯黑盒：只要能输入 w、拿到（带噪声的）输出就能迭代。著名 SGD 算法就是 RM 的特殊形式。', en: 'It <strong>needs neither the expression of the objective nor its derivative</strong> — a pure black box: feed in w, read the (noisy) output, iterate. The famous SGD is a special form of RM.' } },
+    { tag: 'Q5 · 书上原问', q: { zh: 'SGD 能收敛得很快吗？', en: 'Can SGD converge quickly?' },
+      a: { zh: 'SGD 有个有趣的收敛模式：<strong>远快近晃</strong>——估计离最优远时下降飞快（随机性相对可忽略）；靠近后随机性主导，在解附近永久小幅晃动。常数步长下晃动不会消失，衰减步长才能安静下来。', en: 'SGD shows a curious pattern: <strong>fast when far, wobbly when near</strong> — far from the optimum the randomness is negligible and descent is rapid; near it, randomness dominates and the estimate jitters around the solution forever. Constant steps never settle; decaying steps do.' } },
+    { tag: 'Q6 · 书上原问', q: { zh: 'MBGD 是什么？比 SGD 和 BGD 好在哪？', en: 'What is MBGD and how does it compare with SGD and BGD?' },
+      a: { zh: 'MBGD（小批量）是 SGD 与 BGD（全批量）的中间版本：比 SGD 用更多样本所以更稳（随机性小），比 BGD 不必用全部样本所以更灵活。图 6.5 显示 m 越大路径越平滑、越靠近解。', en: 'MBGD (mini-batch) is the middle ground between SGD and full-batch BGD: more samples than SGD makes it steadier (less randomness), fewer than BGD keeps it flexible. Figure 6.5 shows larger m yields smoother paths ending closer to the solution.' } },
+  ];
+
+  /* ═══ L6 知识填充 ═══ */
+  D.fillSets = D.fillSets || {};
+  D.fillSets['l6'] = {
+    title: { zh: '第六讲 · 知识填充', en: 'Lecture 6 · Knowledge Fill-in' },
+    items: [
+      {
+        kind: 'choice',
+        tag: { zh: '定理 6.1 · 步长条件', en: 'Theorem 6.1 · Step-size conditions' },
+        stem: { zh: '定理 6.1 的步长条件写成级数是 [[1]]：Σαₖ = ∞ 挡住「走不到」，Σαₖ² < ∞ 挡住"[[2]]"。', en: 'Written as series, Theorem 6.1’s step-size conditions read [[1]]: Σαₖ = ∞ blocks "never arriving", and Σαₖ² < ∞ blocks "[[2]]".' },
+        blanks: [
+          {
+            choices: [
+              { zh: 'Σαₖ = ∞ 且 Σαₖ² < ∞', en: 'Σαₖ = ∞ and Σαₖ² < ∞' },
+              { zh: 'Σαₖ = ∞ 就够了，平方和无关紧要', en: 'Σαₖ = ∞ alone suffices; the squared sum is irrelevant' },
+              { zh: 'Σαₖ² < ∞ 就够了，总和无关紧要', en: 'Σαₖ² < ∞ alone suffices; the total is irrelevant' },
+              { zh: 'α 取一个足够小的常数即可', en: 'any sufficiently small constant α will do' },
+            ],
+            answer: 0,
+            why: { zh: 'Σαₖ = ∞ 挡「走不到」：总和有限时总位移有硬上限，起点离根够远，再多迭代也够不着。Σαₖ² < ∞ 挡「停不下」：每步噪声贡献 αₖηₖ，独立噪声方差直接相加，累计方差 ∝ σ²Σαₖ²——平方和发散，抖动永不平息。挡「多根」的是单调条件。', en: 'Σαₖ = ∞ blocks "never arriving": a finite total caps the displacement, so a start far from the root never gets there. Σαₖ² < ∞ blocks "never settling": each step’s noise contributes αₖηₖ, independent noises add variances directly, and the accumulated variance ∝ σ²Σαₖ² — a divergent squared sum means the wobble never calms. Blocking "multiple roots" is the monotonicity condition’s job.' },
+          },
+          {
+            choices: [
+              { zh: '停不下——累计方差 ∝ σ²Σαₖ² 不封顶，抖动永不平息', en: 'never settling — the accumulated variance ∝ σ²Σαₖ² is uncapped, so the wobble never calms' },
+              { zh: '到不了——总位移有硬上限，起点远就够不着根', en: 'never arriving — the total displacement is capped, and a far start never reaches the root' },
+              { zh: '不唯一——单调性缺失，方程出现多个根', en: 'not unique — without monotonicity the equation has several roots' },
+            ],
+            answer: 0,
+            why: { zh: '两个级数条件各挡一种死法，互换不了：只满足 Σαₖ = ∞（常数步长）会永久抖动；只满足 Σαₖ² < ∞（如 αₖ = 1/k²）会在远起点处走不完路。1/k 两头全占：Σ1/k = ∞，Σ1/k² = π²/6 < ∞。', en: 'The two series conditions each block one death and cannot replace each other: satisfying only Σαₖ = ∞ (a constant step) jitters forever; satisfying only Σαₖ² < ∞ (say αₖ = 1/k²) cannot cover a long distance. 1/k holds both: Σ1/k = ∞ and Σ1/k² = π²/6 < ∞.' },
+          },
+        ],
+      },
+      {
+        kind: 'choice',
+        tag: { zh: 'make_schedules · 四种命运', en: 'make_schedules · Four fates' },
+        stem: { zh: 'code-lab 的 make_schedules 摆了四个步长家族。αₖ = 1/k 的命运是 [[1]]；常数 α = 0.5 只满足 Σαₖ = ∞（Σαₖ² = ∞），命运是 [[2]]；αₖ = 1/k² 只满足 Σαₖ² < ∞（Σαₖ 有限），命运是 [[3]]。', en: 'make_schedules in the code lab lines up four step-size families. αₖ = 1/k meets [[1]]; the constant α = 0.5 satisfies only Σαₖ = ∞ (Σαₖ² = ∞), so its fate is [[2]]; αₖ = 1/k² satisfies only Σαₖ² < ∞ (Σαₖ finite), so its fate is [[3]].' },
+        blanks: [
+          {
+            choices: [
+              { zh: '两个条件全中，几乎必然收敛到真根', en: 'both conditions hold — almost sure convergence to the true root' },
+              { zh: '在真值附近永久抖动，幅度不衰减', en: 'eternal jitter around the true value, undamped' },
+              { zh: '每步跨过真值，误差越走越大直至发散', en: 'crossing the true value every step, the error snowballing into divergence' },
+            ],
+            answer: 0,
+            why: { zh: '1/k 两头全占：Σ1/k = ∞ 走得够远，Σ1/k² = π²/6 < ∞ 抖得够停。1/k^0.75 同样两条件全中——p ∈ (0.5, 1] 的 1/kᵖ 都满足，p > 0.5 保证平方可和。', en: '1/k holds both: Σ1/k = ∞ travels far enough, Σ1/k² = π²/6 < ∞ settles fast enough. 1/k^0.75 qualifies too — every 1/kᵖ with p ∈ (0.5, 1] does, since p > 0.5 makes the squares summable.' },
+          },
+          {
+            choices: [
+              { zh: 'Σαₖ² = ∞ ⟹ 噪声方差永不消失，在真值附近永久抖动', en: 'Σαₖ² = ∞ means the noise variance never dies — eternal jitter around the true value' },
+              { zh: '两条件全中，安静收敛到真根', en: 'both conditions hold — quiet convergence to the true root' },
+              { zh: '总位移封顶，起点远时够不着真根', en: 'the total displacement is capped — a far start never reaches the root' },
+            ],
+            answer: 0,
+            why: { zh: 'α = 0.5 违反第二条：Σαₖ² = ∞，累计方差 ∝ σ²Σαₖ² 不封顶，平稳抖动方差 ~ ασ²/(2−α)——随 α 一阶缩小，但永不归零。这不是数值不稳，是理论判了刑——常数步长换来的是指数遗忘，代价就是永远不精确。', en: 'α = 0.5 violates the second condition: Σαₖ² = ∞, the accumulated variance ∝ σ²Σαₖ² is uncapped, and the stationary jitter variance ~ ασ²/(2−α) — first-order in α yet never zero. Not numerical instability — a theoretical sentence: the exponential forgetting a constant step buys is paid for with eternal imprecision.' },
+          },
+          {
+            choices: [
+              { zh: '总位移封顶（Σ1/k² 有限），起点离根够远就永远够不着', en: 'the total displacement is capped (Σ1/k² finite) — start far enough and the root is never reached' },
+              { zh: '噪声方差永不消失，在真值附近永久抖动', en: 'the noise variance never dies — eternal jitter around the true value' },
+              { zh: '每步跨过真值，到对面更远处', en: 'every step crosses the true value and lands farther out the other side' },
+            ],
+            answer: 0,
+            why: { zh: '1/k² 最隐蔽：平方和 π²/6 有限所以抖得停，但调和和 Σ1/k² 本身也有限——总位移被封顶，初始点离根够远时，再多迭代也够不着。这是「Σαₖ = ∞ 挡走不到」的活标本。', en: '1/k² is the subtle one: its squared sum π²/6 is finite so it can settle, but Σ1/k² itself is finite too — the total displacement is capped, and a start far from the root never arrives no matter how long it iterates. A living specimen of "Σαₖ = ∞ blocks never-arriving".' },
+          },
+        ],
+      },
+      {
+        kind: 'number',
+        tag: { zh: '发散的那一档', en: 'The diverging preset' },
+        stem: { zh: '四个家族里唯一发散的是常数 α = [[1]]：每步跨过真值、到对面更远处（另一档常数 α = 0.5 只是抖动，不算发散）。', en: 'The only diverging one among the four is the constant α = [[1]]: every update crosses the true value and lands farther out the other side (the other constant, α = 0.5, merely jitters and does not diverge).' },
+        blanks: [
+          {
+            answer: 2.0, tol: 0.01,
+            hint: { zh: '增量均值试验台三档里最激进的一档', en: 'The most aggressive preset in the incremental-mean lab' },
+            why: { zh: 'α = 2 时误差每步乘 (1 − α) = −1：w 跳到真值另一侧等距处，再叠加噪声越荡越远——是发散，不是抖动。对照：α = 0.5 仍在收缩（(1 − α) = 0.5）但 Σα² = ∞，所以是永久抖动；α = 1/k 才安静收敛。', en: 'With α = 2 the error is multiplied by (1 − α) = −1 each step: w jumps to the mirrored point across the true value and, with noise on top, swings ever wider — divergence, not jitter. Compare: α = 0.5 still contracts ((1 − α) = 0.5) but has Σα² = ∞, hence eternal jitter; only α = 1/k settles.' },
+          },
+        ],
+      },
+      {
+        kind: 'number',
+        tag: { zh: '书上例子的真根', en: 'The true root in the book’s example' },
+        stem: { zh: 'RM 例子解 g(w) = w³ − 5：黑盒，只有带 N(0,1) 噪声的读数 g̃(w) = g(w) + η，步长 aₖ = 1/k，main 里跑 2000 步。真根保留两位小数 ≈ [[1]]。', en: 'The RM example solves g(w) = w³ − 5: a black box offering only noisy readings g̃(w) = g(w) + η with N(0,1) noise, steps aₖ = 1/k, and 2000 iterations in main. The true root, to two decimals, ≈ [[1]].' },
+        blanks: [
+          {
+            answer: 1.71, tol: 0.02,
+            hint: { zh: '5 的立方根——代码里 true_root = 5 ** (1/3)', en: 'The cube root of 5 — the code writes true_root = 5 ** (1/3)' },
+            why: { zh: '5^(1/3) ≈ 1.70998 ≈ 1.71。每步读数都被标准正态噪声污染，wₖ 照样滑向它：单调 + 步长 + 零均值噪声三条全占，几乎必然收敛——噪声改变路径，不改终点。把 n 从 2000 砍到 200，1/k 的估计可能还没走到，因为 Σαₖ = ∞ 要的是「足够远的总路程」。', en: '5^(1/3) ≈ 1.70998 ≈ 1.71. Every reading is polluted by standard-normal noise, yet wₖ still slides toward it: monotonicity, step sizes and zero-mean noise all hold, so convergence is almost sure — noise bends the path, not the destination. Cut n from 2000 to 200 and the 1/k estimate may not have arrived: Σαₖ = ∞ demands enough total distance.' },
+          },
+        ],
+      },
+      {
+        kind: 'choice',
+        tag: { zh: '期望意义下的压缩', en: 'Contraction in expectation' },
+        stem: { zh: 'L3 的 Bellman 右端是确定性压缩：‖f(v₁) − f(v₂)‖ ≤ γ‖v₁ − v₂‖ 每一步严格成立。TD 的目标 r + γv(s′) 等于 Bellman 右端加零均值噪声，所以随机版的正确说法是 [[1]]。', en: 'L3’s Bellman right side is a deterministic contraction: ‖f(v₁) − f(v₂)‖ ≤ γ‖v₁ − v₂‖ holds strictly at every step. TD’s target r + γv(s′) equals the Bellman right side plus zero-mean noise, so the correct stochastic statement is [[1]].' },
+        blanks: [
+          {
+            choices: [
+              { zh: 'E[‖F(v) − F(u)‖] ≤ γ‖v − u‖——期望意义下每步平均收缩 γ 倍，个别步可以被噪声推远', en: 'E[‖F(v) − F(u)‖] ≤ γ‖v − u‖ — on average each step shrinks distances by a factor γ; individual steps may be pushed outward by noise' },
+              { zh: '每一步仍然严格收缩 γ 倍，噪声不起任何作用', en: 'every step still contracts strictly by γ, and noise plays no role at all' },
+              { zh: '随机版不再需要 γ < 1，全靠步长条件兜底', en: 'the stochastic version no longer needs γ < 1 — the step-size conditions do all the work' },
+            ],
+            answer: 0,
+            why: { zh: '对目标取期望，E[r + γv(s′)] 恰好回到 Bellman 右端——映射在期望意义下仍是系数 γ 的压缩，L3 那台「确定性发动机」（γ < 1）照常点火。噪声只贡献方差：零均值保证不偏（方向平均正确），Σαₖ² < ∞ 保证方差最终抖没。两台发动机合奏：γ < 1 管方向，RM 步长条件管噪声。', en: 'Take the expectation of the target and E[r + γv(s′)] lands exactly on the Bellman right side — the map is still a γ-contraction in expectation, and L3’s deterministic engine (γ < 1) fires as usual. Noise only contributes variance: zero mean keeps it unbiased (correct direction on average), Σαₖ² < ∞ eventually shakes the variance off. Two engines in duet: γ < 1 steers, the RM step-size conditions silence the noise.' },
+          },
+        ],
+      },
+      {
+        kind: 'choice',
+        tag: { zh: '两个时间尺度', en: 'Two time scales' },
+        stem: { zh: '把 TD 嵌回「评估 + 改进」的大循环（广义策略迭代），两个循环天然跑在两个时间尺度上。收敛要求的方向是 [[1]]。', en: 'Nest TD back into the big evaluate-and-improve loop (generalised policy iteration) and the two loops naturally run on two time scales. Convergence demands [[1]].' },
+        blanks: [
+          {
+            choices: [
+              { zh: '价值估计在快尺度上先行收敛，策略改进在慢尺度上慢慢跟', en: 'value estimation converges first on the fast scale, while policy improvement follows slowly on the slow scale' },
+              { zh: '策略先定死，价值估计在慢尺度上慢慢追', en: 'the policy settles first, and value estimation chases it slowly on the slow scale' },
+              { zh: '两个循环必须同速更新，快慢并存必然发散', en: 'both loops must update at the same speed; any gap means divergence' },
+            ],
+            answer: 0,
+            why: { zh: '价值估计要先把当前策略的价值学到位，慢尺度上的策略改进才有可靠依据；顺序反了，就是在给一条过时策略做精评估，白费算力。这正是广义策略迭代「评估与改进交替纠错」的随机近似版本——Dvoretzky 定理允许步长依赖历史（Q-learning 里 α 取决于访问次数），伺候的正是这种快慢分工。', en: 'Value estimation must first learn the current policy’s values properly, so that policy improvement on the slow scale has something reliable to stand on; the reversed order means carefully evaluating an obsolete policy — compute wasted. This is the stochastic-approximation dress of generalised policy iteration’s alternating loops — and Dvoretzky’s theorem, which lets the step size depend on history (in Q-learning, α depends on visit counts), serves exactly this fast-slow division of labour.' },
+          },
+        ],
+      },
+      {
+        kind: 'code',
+        tag: { zh: 'RM 一行本体', en: 'The one-line body of RM' },
+        stem: { zh: 'RM 算法本体只有一行，骨架是 w ← w + α(目标 − w)。代码里被挖掉一个符号，补上：[[1]]', en: 'The body of RM is a single line with the skeleton w ← w + α(target − w). One symbol is missing from the code — fill it in: [[1]]' },
+        code: { zh: 'w = w + alpha * ([[1]] - w)', en: 'w = w + alpha * ([[1]] - w)' },
+        blanks: [
+          {
+            choices: [
+              { zh: 'target——本轮的目标（增量均值里是样本 xₖ，TD 里是 r + γv(s′)）', en: 'target — this round’s target (the sample xₖ in the incremental mean; r + γv(s′) in TD)' },
+              { zh: 'w——旧估计自己（差恒为零，迭代原地踏步）', en: 'w — the old estimate itself (the gap is always zero, so the iteration stalls in place)' },
+              { zh: 'eta——本轮噪声（往纯噪声方向挪，只会偏离更远）', en: 'eta — this round’s noise (stepping toward pure noise only drifts farther off)' },
+            ],
+            answer: 0,
+            why: { zh: '括号里必须是「目标 − 当前估计」——这个差是全部动力，每次把旧估计往目标挪 α 的比例。增量均值、SGD、TD 换的只是「目标」的马甲：xₖ、∇f(w,x)、r + γv(s′)；骨架一个字不动。RM 的黑盒版则直接用带噪声的读数：w ← w − aₖg̃(w, η)。', en: 'The brackets must hold "target − current estimate" — that gap is the entire engine, moving the old estimate an α-share toward the target each round. The incremental mean, SGD and TD only change the target’s costume: xₖ, ∇f(w,x), r + γv(s′); the skeleton never moves. RM’s black-box form uses the noisy reading directly: w ← w − aₖg̃(w, η).' },
+          },
+        ],
+      },
+      {
+        kind: 'number',
+        tag: { zh: '抖动的价格', en: 'The price of jitter' },
+        stem: { zh: 'sgd_mean 用常数步长估均值：先快速逼近，再在邻域内永久抖动。更新式 w ← w + α(x − w) 的误差是 AR(1)，平稳抖动方差 ~ ασ²/(2−α)（一阶于 α）。把 α 从 0.2 减半到它的默认值 0.1，平稳抖动方差大约变为原来的 [[1]] 倍。', en: 'sgd_mean estimates the mean with a constant step: fast approach first, then eternal jitter in a neighbourhood. The error of the update w ← w + α(x − w) is an AR(1), with stationary jitter variance ~ ασ²/(2−α) (first-order in α). Halving α from 0.2 to its default 0.1 makes the stationary jitter variance about [[1]] times the original.' },
+        blanks: [
+          {
+            answer: 0.5, tol: 0.05,
+            hint: { zh: '平稳方差 ~ ασ²/(2−α)，一阶于 α——直接比两个 α', en: 'Stationary variance ~ ασ²/(2−α), first-order in α — just compare the two α values' },
+            why: { zh: '一阶看：方差 ∝ α ⟹ 比值 ≈ 0.1/0.2 = 1/2；精确比 (0.1/1.9)/(0.2/1.8) ≈ 0.47，仍在 0.5 附近。推导一句：误差递推 eₖ₊₁ = (1−α)eₖ + αηₖ 是 AR(1)，稳态方差满足 V = (1−α)²V + α²σ²，解得 V = ασ²/(2−α)。常见误区：把单步注入的 α²σ² 当成稳态方差——它每步注入、又被 (1−α)² 逐步折减，几何累积后才停在 ~ασ²/2（方差 ∝ α、幅度 ∝ √α：想让幅度砍半，α 得除以 4）。反过来这也标出常数步长的用途边界：目标漂移时你要的正是「忘得掉」，小常数反而是正确选择；目标固定时它只是永远消不掉的方差。', en: 'First-order view: variance ∝ α ⟹ ratio ≈ 0.1/0.2 = 1/2; the exact ratio (0.1/1.9)/(0.2/1.8) ≈ 0.47, still near 0.5. One-line derivation: the error recursion eₖ₊₁ = (1−α)eₖ + αηₖ is an AR(1), whose stationary variance satisfies V = (1−α)²V + α²σ², giving V = ασ²/(2−α). Common misconception: taking the per-step injection α²σ² as the steady-state variance — it is injected each step yet damped by (1−α)² each step, and only the geometric accumulation settles at ~ασ²/2 (variance ∝ α, amplitude ∝ √α: to halve the amplitude you must divide α by 4). This also marks the boundary of constant steps’ usefulness: with a drifting target you want exactly this forgetting, so a small constant is right; with a fixed target it is just variance that never dies.' },
+          },
+        ],
+      },
+    ],
+  };
+
+  /* ═══ L6 定理推导（契约见 scripts/check_data.js checkDerivations） ═══ */
+  D.derivationSets = D.derivationSets || {};
+  D.derivationSets['l6'] = {
+    title: { zh: '第六讲 · 定理推导', en: 'Lecture 6 · Theorem Derivations' },
+    items: [
+      {
+        id: 'robbins-monro-conditions',
+        name: { zh: 'Robbins-Monro：从均值估计到求根', en: 'Robbins-Monro: From Mean Estimation to Root-Finding' },
+        intro: { zh: 'RM 为什么非得 Σα = ∞ 且 Σα² &lt; ∞？从最熟悉的均值估计出发，先把它翻译成一个求根问题，再让两个级数条件各自认领一种死法——14 步走完，§6.1 的增量均值、定理 6.1、定理 6.2 就串在同一条链上。带 ★ 的两步要亲手作答才放行。', en: 'Why must RM insist on Σα = ∞ and Σα² &lt; ∞? Start from the familiar mean estimation, translate it into a root-finding problem, and let each series condition claim its own failure mode — in 14 steps, §6.1’s incremental mean, Theorem 6.1 and Theorem 6.2 sit on one chain. The two ★ steps must be answered by hand to proceed.' },
+        steps: [
+          { tex: String.raw`g(\theta)=0 \;\xrightarrow{\ \text{黑盒：只有带噪读数}\ }\; \tilde g(\theta,\eta) = g(\theta)+\eta, \qquad \mathbb{E}[\eta]=0,\ \ \operatorname{var}[\eta]\le\sigma^{2}`,
+            why: { zh: '问题设定（定理 6.1 的噪声侧条件）：g 是黑盒——表达式未知、导数未知，只能输入 θ 读回一个带噪数。对噪声的全部要求：零均值、方差有界；不要求高斯、不要求独立于 θ 之外的分布形状。', en: 'The setup (Theorem 6.1’s noise side): g is a black box — expression unknown, derivative unknown; feed in θ, read back a noisy number. All we ask of the noise: zero mean, bounded variance; Gaussian is not required.' } },
+          { tex: String.raw`g(\theta) \;=\; \theta - \mathbb{E}[X] \;=\; 0 \qquad\Longleftrightarrow\qquad \htmlClass{fx-gold}{\theta^{*} \;=\; \mathbb{E}[X] \;=\; \mu}`,
+            why: { zh: '先立桥梁：均值估计被翻译成求根。取 g(θ) = θ − E[X]，它的根恰好就是 μ——「估均值」与「解方程 g(θ)=0」是同一件事的两种说法，RM 的一切结论都可即刻兑换给均值估计。', en: 'The bridge first: mean estimation translated into root-finding. Take g(θ) = θ − E[X]; its root is exactly μ — "estimating the mean" and "solving g(θ)=0" are two readings of one task, and every RM conclusion cashes in for the mean at once.' } },
+          { tex: String.raw`\tilde g_k \;=\; \theta_k - x_k \;=\; \underbrace{(\theta_k-\mu)}_{=\,g(\theta_k)} \;+\; \underbrace{(\mu-x_k)}_{=\,\eta_k}, \qquad \mathbb{E}[\eta_k]=0`,
+            why: { zh: '样本就是对这条 g 的带噪读数：E[x_k] = μ，所以偏差 η_k = μ − x_k 恰是零均值噪声。两个框架逐变量对齐完毕——每来一个样本，就等于对 g 做了一次带噪观测。', en: 'A sample is precisely a noisy reading of this g: E[x_k] = μ, so the deviation η_k = μ − x_k is exactly zero-mean noise. The two frameworks are now aligned variable by variable — each new sample is one noisy observation of g.' } },
+          { tex: String.raw`\theta_{k+1} \;=\; \theta_k - \alpha_k\,\tilde g_k \;=\; \theta_k + \alpha_k\,(x_k-\theta_k)`,
+            why: { zh: '把读数代入 RM 更新式 θ ← θ − α·g̃：得到的就是 §6.1 增量均值的骨架「新估计 = 旧估计 + 步长×(目标 − 旧估计)」。书的减号形式与骨架的加号形式是同一条式子——均值估计从此正式入住 RM 框架。', en: 'Substituting the reading into the RM update θ ← θ − α·g̃ yields exactly §6.1’s incremental-mean skeleton, "new = old + step × (target − old)". The book’s minus form and the skeleton’s plus form are the same line — the incremental mean formally moves into the RM frame.' } },
+          { tex: String.raw`\theta_{k+1}-\mu \;=\; \htmlClass{fx-green}{(1-\alpha_k)\,(\theta_k-\mu)} \;+\; \htmlClass{fx-red}{\alpha_k\,\eta_k}`,
+            why: { zh: '两边同减根 μ 整理：误差 = 信号项 + 噪声项。信号项 (1−α_k) 缩水由步长调度决定「能不能衰减到零」；噪声项 α_kη_k 每步重新注入，决定「会不会越抖越多」。收敛要同时管住这两件事——接下来的两个级数条件一一对应。', en: 'Subtract the root μ from both sides: error = signal term + noise term. The signal factor (1−α_k) decides whether the error "can decay to zero"; the noise term α_kη_k is freshly injected each step and decides whether "the wobble piles up". Convergence must govern both — and the two series conditions map onto them one to one.' } },
+          { tex: String.raw`\operatorname{var}[\alpha_k\,\eta_k] \;=\; \alpha_k^{2}\,\operatorname{var}[\eta_k] \;\le\; \alpha_k^{2}\,\sigma^{2} \qquad\Rightarrow\qquad \text{累计噪声方差} \;\propto\; \sum_{k}\alpha_k^{2}`,
+            why: { zh: '步长把噪声乘了 α_k，方差就被乘了 α_k²；各步噪声独立、方差直接相加——所以「噪声会不会被平均掉」完全由 Σα_k² 一个和说了算。这一步是纯方差运算，不含任何近似。', en: 'The step multiplies the noise by α_k, hence the variance by α_k²; steps are independent so variances add directly — whether the noise gets averaged away is decided by the single sum Σα_k². Pure variance bookkeeping, no approximation.' } },
+          { tex: String.raw`\text{步长条件·噪声侧：} \qquad \sum_{k=1}^{\infty}\alpha_k^{2} \;<\; \infty`,
+            why: { zh: '这就是定理 6.1 条件②的后半：Σα_k² &lt; ∞ 给累计噪声方差封顶并让它趋于零——「抖得够停」。反过来，常数步长的 Σα² = ∞ 正是死在这一条上：方差预算无上限，抖动永不平息。', en: 'This is the second half of Theorem 6.1’s condition (b): Σα_k² &lt; ∞ caps the accumulated noise variance and drives it to zero — "settles down enough". Conversely, a constant step’s Σα² = ∞ dies exactly here: an uncapped variance budget means the wobble never calms.' },
+            blank: {
+              q: { zh: '级数条件 Σαₖ² &lt; ∞ 在收敛里负责哪件事？', en: 'Which job does the series condition Σαₖ² &lt; ∞ do for convergence?' },
+              choices: [
+                { zh: '总修正量不枯竭——保证任何初始距离都走得完', en: 'The total correction never runs dry — any initial distance can be covered' },
+                { zh: '噪声被平均掉——每步注入方差 αₖ²σ²，独立方差相加，和有限才不爆炸', en: 'The noise gets averaged away — each step injects variance αₖ²σ², independent variances add, only a finite sum avoids explosion' },
+                { zh: '根存在且唯一——这由单调性条件负责，与步长无关', en: 'The root exists and is unique — that is the monotonicity condition’s job, unrelated to step sizes' },
+              ],
+              answer: 1,
+              whyWrong: [
+                { zh: '那是 Σαₖ = ∞ 的职责：总和有限时总位移被封顶，远起点走不完——与噪声无关。', en: 'That is Σαₖ = ∞’s job: a finite total caps the displacement and strands a far start — nothing to do with noise.' },
+                { zh: '正确：独立噪声方差直接相加，累计方差 ∝ σ²Σαₖ²——平方和有限，抖动才平息。', en: 'Correct: independent noises add variances, accumulated variance ∝ σ²Σαₖ² — only a finite squared sum lets the wobble settle.' },
+                { zh: '根的唯一性由单调条件 0 &lt; c₁ ≤ ∇g ≤ c₂ 负责（挡「多根」）；两个级数条件管的是「走得到、停得下」。', en: 'Uniqueness is the monotonicity condition’s job, 0 &lt; c₁ ≤ ∇g ≤ c₂ (blocking extra roots); the two series conditions govern "arriving" and "settling".' },
+              ],
+              hint: { zh: '第 6 步刚算过：var[αₖηₖ] = αₖ²σ²，累计看的是哪一个和？', en: 'Step 6 just computed var[αₖηₖ] = αₖ²σ² — which sum does the accumulation point to?' },
+            } },
+          { tex: String.raw`\text{步长条件·路程侧：} \qquad \sum_{k=1}^{\infty}\alpha_k \;=\; \infty \qquad \Bigl(\textstyle\sum_k\alpha_k<\infty \;\Rightarrow\; \text{总位移有硬上限}\Bigr)`,
+            why: { zh: '条件①挡的是「停在半路」：若步长总和有限（如 α_k = 1/k²），即使每步都朝根走、读数全对，总位移也被封顶——初始点离根够远时，再多的迭代也走不完那段路。步子要先「加得起来无穷」，「任何距离都到得了」才有保证。', en: 'Condition (a) blocks "stalling halfway": with a finite step total (say α_k = 1/k²), even if every step heads root-ward with perfect readings, the total displacement is capped — start far enough from the root and no number of iterations covers the distance. Only a total that "sums to infinity" guarantees "any distance is reachable".' } },
+          { tex: String.raw`\underbrace{\sum_k \alpha_k = \infty}_{\text{走得够远——任何初始距离都到得了}} \qquad \text{且} \qquad \underbrace{\sum_k \alpha_k^{2} < \infty}_{\text{抖得够小——任何噪声都抹得平}}`,
+            why: { zh: '两条件合起来的直觉只有一句话：步长要大到能走遍任何距离，又要小到能抹平任何噪声——走钢丝般的平衡，缺一头就死一种（只满足前者永久抖动，只满足后者停在半路）。', en: 'The joint intuition is one sentence: steps must be large enough to cover any distance, yet small enough to erase any noise — a tightrope balance; drop either side and one death follows (only the first means eternal jitter, only the second means stalling halfway).' } },
+          { tex: String.raw`\text{定理 6.1（RM）}:\ \ 0<c_1\le\nabla g(\theta)\le c_2, \ \ \sum_k\alpha_k=\infty, \ \ \sum_k\alpha_k^{2}<\infty, \ \ \mathbb{E}[\eta_k\mid\mathcal{H}_k]=0 \ \Longrightarrow\ \theta_k \xrightarrow{\ \text{a.s.}\ } \theta^{*}`,
+            why: { zh: '收拢成书上的完整定理：补上单调条件（0 &lt; c₁ ≤ ∇g ≤ c₂——挡「多根」，保证根存在唯一）与噪声条件（零均值、方差有界），三条全占 ⟹ θ_k 几乎必然收敛到真根。本链只展开两个步长条件各自的分工；单调与噪声条件按定理直接引用。', en: 'Gathered into the book’s full theorem: add monotonicity (0 &lt; c₁ ≤ ∇g ≤ c₂ — blocking extra roots, so the root exists and is unique) and the noise conditions (zero mean, bounded variance); all three ⟹ θ_k converges to the true root almost surely. This chain only unfolds the division of labour between the two step-size conditions; monotonicity and noise are cited as stated.' } },
+          { tex: String.raw`\alpha_k=\frac{1}{k}: \qquad \sum_k \frac{1}{k} \;=\; ? \qquad\qquad \sum_k \frac{1}{k^{2}} \;=\; ?`,
+            why: { zh: '两个级数结论直接引用（不证）：调和级数 Σ1/k = ∞（发散——走得够远）；巴塞尔问题的结论 Σ1/k² = π²/6 &lt; ∞（收敛——抖得够小）。1/k 同时过两关，一箭双雕——§6.1 说它「精确卡在两条级数条件的中线上」就是这个意思。', en: 'Both series results are cited, not proved: the harmonic series Σ1/k = ∞ (diverges — travels far enough); Basel’s result Σ1/k² = π²/6 &lt; ∞ (converges — settles small enough). 1/k passes both gates at once — exactly what §6.1 means by "sitting precisely on the midline of the two series conditions".' },
+            blank: {
+              q: { zh: '两个级数各是哪个结论？选出正确的核对（结论直接引用，不证）。', en: 'Which conclusion does each series have? Pick the correct check (results cited, not proved).' },
+              choices: [
+                { zh: 'Σ1/k 收敛 · Σ1/k² 收敛——只满足「停得下」，远起点会停在半路', en: 'Σ1/k converges and Σ1/k² converges — only "settling" holds; a far start stalls halfway' },
+                { zh: 'Σ1/k 发散 · Σ1/k² 也发散——只满足「到得了」，噪声永远抖不平', en: 'Σ1/k diverges and Σ1/k² also diverges — only "arriving" holds; the noise never settles' },
+                { zh: 'Σ1/k = ∞ 发散（走得够远）· Σ1/k² = π²/6 < ∞ 收敛（抖得够小）——两条件全中', en: 'Σ1/k = ∞ diverges (travels far enough) and Σ1/k² = π²/6 < ∞ converges (settles small enough) — both conditions met' },
+              ],
+              answer: 2,
+              whyWrong: [
+                { zh: '前半错：调和级数 Σ1/k 是发散的——这正是 1/k 不同于 1/k²（走不完远路）的关键。', en: 'First half wrong: the harmonic series Σ1/k diverges — precisely what separates 1/k from 1/k² (which cannot cover long distances).' },
+                { zh: '后半错：巴塞尔问题的结论 Σ1/k² = π²/6 有限——平方和收敛，抖动才会平息。', en: 'Second half wrong: Basel’s result Σ1/k² = π²/6 is finite — the squared sum converges, letting the wobble settle.' },
+                { zh: '正确：调和级数发散 + 巴塞尔和收敛，1/k 一箭双雕——增量均值用它当步长正是因此收敛。', en: 'Correct: harmonic divergence plus Basel convergence — 1/k hits both, which is why the incremental mean converges with it as the step.' },
+              ],
+              hint: { zh: '两条著名级数：调和级数 vs 巴塞尔问题。', en: 'Two famous series: the harmonic series vs. the Basel problem.' },
+            } },
+          { tex: String.raw`\alpha_k \equiv \alpha>0: \qquad \htmlClass{fx-green}{\sum_k \alpha=\infty\ \checkmark} \qquad \htmlClass{fx-red}{\sum_k \alpha^{2}=\infty\ \times}`,
+            why: { zh: '常数步长过第一关、挂第二关：累计噪声方差不封顶——单步注入方差 α²var[X]，累积使估计在真值附近永不停息地抖动（平稳抖动方差 ~ ασ²/(2−α)，一阶于 α），理论判了刑、不是数值不稳。但它在 L5/§6.1 换来了指数遗忘——非平稳世界里「跟得上漂移的目标」恰恰需要它。收敛与跟踪是一对此生不可兼得的目标，怎么选是「你认为世界平不平稳」的立场问题。', en: 'A constant step passes the first gate and fails the second: the noise variance budget is uncapped — each step injects variance α²var[X], and their accumulation keeps the estimate jittering around the truth without end (stationary jitter variance ~ ασ²/(2−α), first-order in α) — a theoretical sentence, not numerical instability. But it buys exponential forgetting (L5/§6.1) — exactly what tracking a drifting target in a nonstationary world needs. Convergence and tracking cannot be had at once; the choice is a stance on whether the world is stationary.' } },
+          { tex: String.raw`\text{增量均值会收敛} \;=\; \text{RM 定理在 } \ g(\theta)=\theta-\mathbb{E}[X],\ \ \alpha_k=\tfrac{1}{k} \ \text{ 下的特例}`,
+            why: { zh: '闭环：x̄ 的增量更新就是在 g(θ) = θ − E[X] 上跑 RM、步长取 1/k——单调、步长、噪声三条件逐一成立，收敛是白拿的。§6.1 那句「增量均值会收敛，正是 RM 条件在 1/t 情形下的特例」至此走完了论证。', en: 'The loop closes: the incremental update of x̄ is RM run on g(θ) = θ − E[X] with steps 1/k — monotonicity, step sizes and noise all check out, so convergence comes free. §6.1’s claim that "the incremental mean converges exactly as the RM conditions specialise to 1/t" is now argued in full.' } },
+          { tex: String.raw`\text{定理 6.2（Dvoretzky）}:\ \ \sum_k\alpha_k=\infty,\ \ \sum_k\alpha_k^{2}<\infty,\ \ \sum_k\beta_k^{2}<\infty \ \Longrightarrow\ \theta_k\to\theta^{*} \qquad \bigl(\text{步长与偏置 }\beta_k\text{ 可依赖历史}\bigr)`,
+            why: { zh: 'Dvoretzky 定理是这套条件的一般化：允许步长 α_k 和噪声偏置 β_k 是依赖历史 H_k 的随机量——Q-learning 里 α 随 (s,a) 访问次数变化，正需要这个放宽；第 7 章最优值收敛证明引用的正是它。完整推导链（TD(0)/Q-learning 是其特例）在 L7 等你。', en: 'Dvoretzky’s theorem generalises the whole scheme: the steps α_k and noise offsets β_k may be random quantities depending on the history H_k — exactly the relaxation Q-learning needs, where α depends on the visit count of (s,a); it is the tool Chapter 7’s optimal-value convergence proofs cite. The full chain (TD(0)/Q-learning as special cases) awaits in L7.' } },
+        ],
+      },
+    ],
+  };
+
+
+  /* 导航组注册已提升至 data.js 的 NAV（按讲懒加载后，冷启动侧栏也要完整） */
+  const l6 = D.otherLectures.find(l => l.no === 6);
+  if (l6) l6.live = true;
+})();
+
+/* ===== L6 官方视频索引 · official video index（第 8 轮新增）=====
+   来源：官方仓库 Readme.md 的英文课程清单（与 B 站中文版同一编号，共 7 集）。
+   中文 B 站单视频分 P：https://www.bilibili.com/video/BV1sd4y167NS/?p=<n>
+   英文 YouTube：https://www.youtube.com/watch?v=<yt>&list=PLEhdbSEZZbDaFWPX4gehhwB9vJZJ1DNm8&index=<n>
+   计数核对：本讲 22–28，共 7 集。 */
+(function () {
+  const D = window.DATA;
+  D.videoSets = D.videoSets || {};
+  D.videoSets['l6'] = {
+    min: 22,
+    max: 28,
+    episodes: [
+      { n: 22, en: "Stochastic Approximation and SGD (P1-Motivating example)", yt: "1bMgejvWoAo" },
+      { n: 23, en: "Stochastic Approximation and SGD (P2-RM algorithm: introduction)", yt: "1FTGcNUUnCE" },
+      { n: 24, en: "Stochastic Approximation and SGD (P3-RM algorithm: convergence)", yt: "juNDoAFEre4" },
+      { n: 25, en: "Stochastic Approximation and SGD (P4-SGD algorithm: introduction)", yt: "EZO7Iadp5m4" },
+      { n: 26, en: "Stochastic Approximation and SGD (P5-SGD algorithm: examples)", yt: "BsxU_4qvvNA" },
+      { n: 27, en: "Stochastic Approximation and SGD (P6-SGD algorithm: properties)", yt: "fWxX9YuEHjE" },
+      { n: 28, en: "Stochastic Approximation and SGD (P7-SGD algorithm: comparison)", yt: "yNEV2cLKuzU" }
+    ],
+  };
+  D.sections['l6-incremental'].blocks.push({ t: 'widget', component: 'official-videos', props: { source: 'l6' } });
+})();

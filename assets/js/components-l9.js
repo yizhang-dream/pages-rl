@@ -1,0 +1,288 @@
+/* ═══════════════════════════════════════════════════════════
+   L9 组件：REINFORCE 现场训练 / 基线方差与无偏性对比实验台
+   ═══════════════════════════════════════════════════════════ */
+(function () {
+  const RLV = window.RLV;
+  const { bi, stepOnce } = RLV;
+  const GB = () => window.COMPONENTS.GridBoard;
+
+  const ReinforceLab = {
+    name: 'L9ReinforceLab',
+    components: { GridBoard: GB() },
+    data: () => ({
+      alpha: 0.05,
+      seed: 42,                   // 随机种子固定：Reset 重训两轮轨迹逐点一致
+      rand: null,                 // reset() 时以 seed 重建（RLV.rng）
+      theta: null, episodes: 0, returns: [],
+      playing: false, timer: null,
+    }),
+    computed: {
+      cfg() { return { size: 2, forbidden: [2], target: 4 }; },
+      probs() {
+        if (!this.theta) return null;
+        return this.theta.map(row => {
+          const m = Math.max(...row);
+          const e = row.map(x => Math.exp(x - m));
+          const s = e.reduce((a, b) => a + b, 0);
+          return e.map(x => x / s);
+        });
+      },
+      policy() { return this.probs || Array.from({ length: 4 }, () => [.2,.2,.2,.2,.2]); },
+      avgReturn() {
+        const n = Math.min(this.returns.length, 20);
+        if (!n) return null;
+        return this.returns.slice(-n).reduce((a, b) => a + b, 0) / n;
+      },
+      sparkline() {
+        const arr = this.returns.slice(-80);
+        if (arr.length < 2) return '';
+        const m = Math.max(...arr.map(Math.abs), 1);
+        return arr.map((g, i) => `${8 + i / (arr.length - 1) * 264},${45 - g / m * 36}`).join(' ');
+      },
+    },
+    methods: {
+      bi,
+      episode() {
+        const gamma = 0.9;
+        let s = 1;
+        const traj = [];
+        for (let t = 0; t < 60; t++) {
+          const p = this.probs[s - 1];
+          let x = this.rand(), acc = 0, a = 5;
+          for (let i = 0; i < 5; i++) { acc += p[i]; if (x <= acc) { a = i + 1; break; } }
+          const r = stepOnce(s, a, { size: 2, forbidden: [2], target: 4, mode: 'book' });
+          traj.push({ s, a, r: r.reward });
+          s = r.next;
+          if (s === 4 && t > 3) break;
+        }
+        let G = 0;
+        const gammaPows = traj.map((_, t) => Math.pow(gamma, t));
+        for (let i = traj.length - 1; i >= 0; i--) {
+          G = gamma * G + traj[i].r;
+          traj[i].G = G;
+        }
+        traj.forEach((st, t) => {
+          const pi = this.probs[st.s - 1];
+          for (let i = 0; i < 5; i++) {
+            const grad = (i === st.a - 1 ? 1 : 0) - pi[i];
+            this.theta[st.s - 1][i] += this.alpha * gammaPows[t] * st.G * grad;
+          }
+        });
+        this.episodes++;
+        this.returns.push(traj.reduce((acc, x) => acc + x.r, 0));
+        if (this.returns.length > 400) this.returns.shift();
+        this.theta = this.theta.map(r => [...r]);
+      },
+      play() {
+        if (this.playing) { this.stop(); return; }
+        this.playing = true;
+        this.timer = setInterval(() => {
+          for (let i = 0; i < 4; i++) this.episode();
+          if (this.episodes >= 2000) this.stop();
+        }, 50);
+      },
+      stop() { this.playing = false; if (this.timer) { clearInterval(this.timer); this.timer = null; } },
+      reset() {
+        this.stop();
+        this.rand = RLV.rng(this.seed);
+        this.theta = Array.from({ length: 4 }, () => [0,0,0,0,0]);
+        this.episodes = 0; this.returns = [];
+      },
+    },
+    mounted() { this.reset(); },
+    unmounted() { this.stop(); },
+    template: `
+    <div class="lab">
+      <div class="lab-head">
+        <span class="lab-title">REINFORCE 现场训练 · 2×2 世界 · REINFORCE live on the 2×2 world</span>
+        <span class="ctl-label">α = <strong>{{ alpha.toFixed(2) }}</strong></span>
+        <input type="range" min="0.01" max="0.2" step="0.01" v-model.number="alpha"
+               :aria-label="$root.lang === 'en' ? 'learning rate alpha' : '学习率 α'"
+               :style="{width:'120px', '--fill': ((alpha-0.01)/0.19*100)+'%'}">
+      </div>
+      <div class="ctl-row">
+        <button class="btn primary" @click="play"><span v-html="playing ? bi('⏸ 暂停','⏸ Pause') : bi('▶ 训练','▶ Train')"></span></button>
+        <button class="btn" @click="for(let i=0;i<20;i++) episode()">+20 <span v-html="bi('回合','episodes')"></span></button>
+        <button class="btn ghost" @click="reset"><span v-html="bi('↺ 重置','↺ Reset')"></span></button>
+      </div>
+      <div class="lab-body">
+        <div class="lab-stage" style="max-width:250px">
+          <grid-board :size="2" :forbidden="[2]" :target="4" :start="1" :agent="1" :policy="policy"/>
+        </div>
+        <div class="lab-side">
+          <div class="dist" style="margin-bottom:12px">
+            <div v-for="(p,i) in probs ? probs[0] : [.2,.2,.2,.2,.2]" :key="i" class="dist-row" style="grid-template-columns:40px 1fr 56px">
+              <span class="dist-name">a{{ i+1 }}</span>
+              <div class="dist-bar-track"><div class="dist-bar" :style="{width: (p*100)+'%'}"></div></div>
+              <span class="dist-val">{{ p.toFixed(2) }}</span>
+            </div>
+          </div>
+          <div class="tally" style="margin:0 0 10px">
+            <span class="t-label" v-html="bi('回合', 'episodes')"></span>
+            <span class="t-num">{{ episodes }}</span>
+            <span class="t-label" style="margin-left:12px" v-html="bi('近 20 回合平均回报', 'avg return (last 20)')"></span>
+            <span class="t-num" style="color:var(--gold)">{{ avgReturn == null ? '—' : avgReturn.toFixed(2) }}</span>
+          </div>
+          <svg viewBox="0 0 280 60" style="width:100%;max-width:280px;display:block;background:var(--chart-bg);border:1px solid var(--line);border-radius:10px;margin-bottom:10px">
+            <polyline v-if="sparkline" :points="sparkline" fill="none" stroke="var(--accent)" stroke-width="1.4"/>
+            <text v-if="!sparkline" x="140" y="32" text-anchor="middle" style="font:600 11px var(--font)" fill="var(--chart-ink)" v-html="bi('回报曲线将出现在这里','the return curve will appear here')"></text>
+          </svg>
+          <p class="bi duo" style="font-size:13px" v-html="bi(
+            's1 的五个动作概率实时展示：REINFORCE 会把 a3（向下，避开右上禁区）的概率推高、把 a2（向右，闯禁区）压低——推力正比于回报。平均回报曲线从震荡爬向高位，这就是『被奖励强化的行为更常出现』。',
+            'The five action probabilities at s1, live: REINFORCE pushes a3 (down, avoiding the top-right forbidden cell) up and a2 (right, into it) down — force proportional to return. The average-return curve climbs out of noise: rewarded behaviours recur.')"></p>
+        </div>
+      </div>
+    </div>`,
+  };
+
+  /* ---------- 基线不变性与方差（b=0 vs v_π vs b*(s) Eq.10.5） ---------- */
+  const BaselineVarLab = {
+    name: 'L9BaselineVarLab',
+    data: () => ({
+      sharpness: 1.0, noiseStd: 0.8,
+      seed: 101, rand: null,
+      nSamples: 0, empiricalStats: null,
+    }),
+    computed: {
+      qTrue() { return [-1.0, 2.2, 8.5, 1.0, 3.8]; },
+      pi() {
+        const logits = [0.0, 0.3, 0.9, 0.1, 0.45].map(v => v * this.sharpness);
+        const m = Math.max(...logits);
+        const e = logits.map(v => Math.exp(v - m));
+        const z = e.reduce((a, b) => a + b, 0);
+        return e.map(v => v / z);
+      },
+      gradNormSq() {
+        const sumPiSq = this.pi.reduce((a, p) => a + p * p, 0);
+        // ||∇lnπ(a|s)||² = (1 - π_a)² + Σ_{k≠a} π_k² = 1 - 2π_a + Σ π_k²
+        return this.pi.map(p => Math.max(1e-9, 1 - 2 * p + sumPiSq));
+      },
+      vPi() { return this.pi.reduce((acc, p, i) => acc + p * this.qTrue[i], 0); },
+      bStar() {
+        let num = 0, den = 0;
+        for (let i = 0; i < 5; i++) {
+          const w = this.pi[i] * this.gradNormSq[i];
+          num += w * this.qTrue[i];
+          den += w;
+        }
+        return num / (den || 1);
+      },
+      baselines() {
+        return [
+          { key: 'b*', zh: '最优 b*(s)', en: 'Optimal b*(s)', val: this.bStar, color: 'var(--green)' },
+          { key: 'vpi', zh: '次优 v_π(s)', en: 'Subopt. v_π(s)', val: this.vPi, color: 'var(--cyan)' },
+          { key: '0', zh: '无基线 b=0', en: 'None b=0', val: 0, color: 'var(--gold)' },
+          { key: '10', zh: '偏置 b=+10', en: 'Offset b=+10', val: 10, color: 'var(--red)' },
+        ];
+      },
+      metrics() {
+        const meanGrad = new Array(5).fill(0);
+        for (let a = 0; a < 5; a++) {
+          for (let k = 0; k < 5; k++) {
+            const dln = (k === a ? 1 : 0) - this.pi[k];
+            meanGrad[k] += this.pi[a] * this.qTrue[a] * dln;
+          }
+        }
+        const exactMeanNorm = Math.sqrt(meanGrad.reduce((s, x) => s + x * x, 0));
+        return this.baselines.map((b, biIdx) => {
+          // tr(Cov(g)) = E[( (q_a - b)^2 + σ² ) ||∇lnπ||² ] - ||E[g]||²
+          let eSq = 0;
+          const mVec = new Array(5).fill(0);
+          for (let a = 0; a < 5; a++) {
+            eSq += this.pi[a] * (Math.pow(this.qTrue[a] - b.val, 2) + this.noiseStd * this.noiseStd) * this.gradNormSq[a];
+            for (let k = 0; k < 5; k++) {
+              const dln = (k === a ? 1 : 0) - this.pi[k];
+              mVec[k] += this.pi[a] * (this.qTrue[a] - b.val) * dln;
+            }
+          }
+          const mNorm = Math.sqrt(mVec.reduce((s, x) => s + x * x, 0));
+          const exactVar = Math.max(0, eSq - mNorm * mNorm);
+          const emp = this.empiricalStats ? this.empiricalStats[biIdx] : null;
+          return { ...b, meanNorm: mNorm, exactMeanNorm, exactVar, empVar: emp ? emp.var : null };
+        });
+      },
+      maxVar() { return Math.max(...this.metrics.map(m => m.exactVar), 1); },
+    },
+    methods: {
+      bi,
+      sampleBatch(n = 200) {
+        for (let t = 0; t < n; t++) {
+          let x = this.rand(), acc = 0, a = 4;
+          for (let i = 0; i < 5; i++) { acc += this.pi[i]; if (x <= acc) { a = i; break; } }
+          // Box-Muller 正态回报噪声
+          const u1 = Math.max(1e-9, this.rand()), u2 = this.rand();
+          const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+          const G = this.qTrue[a] + this.noiseStd * z;
+          const score = this.pi.map((p, k) => (k === a ? 1 : 0) - p);
+          const n2 = score.reduce((s, v) => s + v * v, 0);
+          this.baselines.forEach((b, idx) => {
+            const st = this._emp[idx];
+            const adv = G - b.val;
+            for (let k = 0; k < 5; k++) st.sumG[k] += adv * score[k];
+            st.sumNorm2 += adv * adv * n2;
+          });
+          this.nSamples++;
+        }
+        this.empiricalStats = this._emp.map(st => {
+          const nTot = this.nSamples || 1;
+          const meanN2 = st.sumG.reduce((s, v) => s + Math.pow(v / nTot, 2), 0);
+          return { var: Math.max(0, st.sumNorm2 / nTot - meanN2) };
+        });
+      },
+      reset() {
+        this.rand = RLV.rng(this.seed);
+        this.nSamples = 0;
+        this._emp = this.baselines.map(() => ({ sumG: [0, 0, 0, 0, 0], sumNorm2: 0 }));
+        this.empiricalStats = null;
+      },
+    },
+    mounted() { this.reset(); this.sampleBatch(200); },
+    template: `
+    <div class="lab baseline-lab">
+      <div class="lab-head">
+        <span class="lab-title">基线不变性与方差实验台 · b=0 vs v_π vs 最优 b*(s) · Baseline Variance Lab</span>
+      </div>
+      <div class="ctl-row">
+        <span class="ctl-label" v-html="bi('策略尖锐度','sharpness') + ': <strong>' + sharpness.toFixed(1) + '</strong>'"></span>
+        <input type="range" min="0.2" max="2.5" step="0.1" v-model.number="sharpness" @change="reset(); sampleBatch(200)"
+               :aria-label="$root.lang === 'en' ? 'policy sharpness' : '策略尖锐度'"
+               :style="{width:'105px', '--fill': ((sharpness-0.2)/2.3*100)+'%'}">
+        <span class="ctl-label">σ = <strong>{{ noiseStd.toFixed(1) }}</strong></span>
+        <input type="range" min="0" max="2" step="0.2" v-model.number="noiseStd" @change="reset(); sampleBatch(200)"
+               :aria-label="$root.lang === 'en' ? 'return noise std' : '回报噪声标准差'"
+               :style="{width:'95px', '--fill': (noiseStd/2*100)+'%'}">
+        <button class="btn primary" @click="sampleBatch(200)">+200 <span v-html="bi('采样对账','Rollouts')"></span></button>
+        <button class="btn ghost" @click="reset(); sampleBatch(200)"><span v-html="bi('↺ 重置','↺ Reset')"></span></button>
+      </div>
+      <div class="lab-body">
+        <div class="lab-stage" style="flex:1 1 380px">
+          <div class="dist" style="gap:10px">
+            <div v-for="m in metrics" :key="m.key" class="dist-row">
+              <span class="dist-name" style="font-size:12px" v-html="bi(m.zh, m.en)"></span>
+              <div class="dist-bar-track">
+                <div class="dist-bar" :style="{width: (m.exactVar / maxVar * 100)+'%', background: m.color}"></div>
+              </div>
+              <span class="dist-val" style="font-size:11px;font-family:var(--mono)">Var={{ m.exactVar.toFixed(1) }} · ‖E‖={{ m.meanNorm.toFixed(3) }}<br><span v-if="m.empVar !== null"><span class="zh">样本 </span><span class="en">Sample</span> Var={{ m.empVar.toFixed(1) }}</span></span>
+            </div>
+          </div>
+        </div>
+        <div class="lab-side">
+          <div class="tally" style="margin:0 0 10px">
+            <span class="t-label">v_π(s)</span>
+            <span class="t-num" style="color:var(--cyan)">{{ vPi.toFixed(2) }}</span>
+            <span class="t-label" style="margin-left:10px">b*(s)</span>
+            <span class="t-num" style="color:var(--green)">{{ bStar.toFixed(2) }}</span>
+            <span class="t-label" style="margin-left:10px" v-html="bi('已采样本','samples')"></span>
+            <span class="t-num">{{ nSamples }}</span>
+          </div>
+          <p class="bi duo" style="font-size:12.5px" v-html="bi(
+            '注视右端 ‖E[g]‖：四种基线的理论期望梯度严格一致（无偏性成立）；注视条长：b*(s)（Eq. 10.5，按 ‖∇lnπ‖² 加权）永远给出最小总方差，实用次优基线 v_π(s) 逼近其下界，而无基线 b=0 或偏置基线方差暴涨（调高锐度差更显著）。',
+            'Watch ‖E[g]‖ on the right: all four baselines yield the exact same analytical expected gradient (unbiased!). Yet total variance differs sharply: weighted optimal b*(s) (Eq. 10.5) always minimizes tr(Cov), practical v_π(s) tracks close behind, while b=0 or offset b=+10 inflates variance.')"></p>
+        </div>
+      </div>
+    </div>`,
+  };
+
+  window.COMPONENTS['l9-reinforce-lab'] = ReinforceLab;
+  window.COMPONENTS['l9-baseline-var-lab'] = BaselineVarLab;
+})();
